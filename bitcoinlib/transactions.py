@@ -18,6 +18,10 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+from dataclasses import dataclass
+import struct
+
+
 from datetime import datetime
 import json
 import pickle
@@ -25,12 +29,31 @@ import random
 from io import BytesIO
 from bitcoinlib.encoding import *
 from bitcoinlib.config.opcodes import *
-from bitcoinlib.keys import HDKey, Key, deserialize_address, Address, sign, verify, Signature
+from bitcoinlib.keys import (
+    HDKey,
+    Key,
+    deserialize_address,
+    Address,
+    sign,
+    verify,
+    Signature,
+)
 from bitcoinlib.networks import Network
 from bitcoinlib.values import Value, value_to_satoshi
 from bitcoinlib.scripts import Script
+import binascii
 
 _logger = logging.getLogger(__name__)
+
+from bitcoinlib.transaction_new import (
+    LegacyTransaction,
+    TxIn,
+    TxOut,
+    OutPoint,
+    P2PKHScript,
+    Script as NewScript,
+    signature_hash_sapling,
+)
 
 
 class TransactionError(Exception):
@@ -38,7 +61,7 @@ class TransactionError(Exception):
     Handle Transaction class Exceptions
     """
 
-    def __init__(self, msg=''):
+    def __init__(self, msg=""):
         self.msg = msg
         _logger.error(msg)
 
@@ -46,531 +69,9 @@ class TransactionError(Exception):
         return self.msg
 
 
-@deprecated  # Replaced by Transaction.parse() in version 0.6
-def transaction_deserialize(rawtx, network=DEFAULT_NETWORK, check_size=True):  # pragma: no cover
-    """
-    Deserialize a raw transaction
-    
-    Returns a dictionary with list of input and output objects, locktime and version.
-    
-    Will raise an error if wrong number of inputs are found or if there are no output found.
-    
-    :param rawtx: Raw transaction as hexadecimal string or bytes
-    :type rawtx: str, bytes
-    :param network: Network code, i.e. 'bitcoin', 'testnet', 'litecoin', etc. Leave emtpy for default network
-    :type network: str, Network
-    :param check_size: Check if not bytes are left when parsing is finished. Disable when parsing list of transactions, such as the transactions in a raw block. Default is True
-    :type check_size: bool
-
-    :return Transaction:
-    """
-
-    rawtx = to_bytes(rawtx)
-    coinbase = False
-    flag = None
-    witness_type = 'legacy'
-
-    version = rawtx[0:4][::-1]
-    cursor = 4
-    if rawtx[4:5] == b'\0':
-        flag = rawtx[5:6]
-        if flag == b'\1':
-            witness_type = 'segwit'
-        cursor += 2
-    n_inputs, size = varbyteint_to_int(rawtx[cursor:cursor + 9])
-    cursor += size
-    inputs = []
-    if not isinstance(network, Network):
-        network = Network(network)
-    for n in range(0, n_inputs):
-        inp_hash = rawtx[cursor:cursor + 32][::-1]
-        if not len(inp_hash):
-            raise TransactionError("Input transaction hash not found. Probably malformed raw transaction")
-        if inp_hash == 32 * b'\0':
-            coinbase = True
-        output_n = rawtx[cursor + 32:cursor + 36][::-1]
-        cursor += 36
-        unlocking_script_size, size = varbyteint_to_int(rawtx[cursor:cursor + 9])
-        cursor += size
-        unlocking_script = rawtx[cursor:cursor + unlocking_script_size]
-        inp_type = 'legacy'
-        if witness_type == 'segwit' and not unlocking_script_size:
-            inp_type = 'segwit'
-        cursor += unlocking_script_size
-        sequence_number = rawtx[cursor:cursor + 4]
-        cursor += 4
-        inputs.append(Input(prev_txid=inp_hash, output_n=output_n, unlocking_script=unlocking_script,
-                            witness_type=inp_type, sequence=sequence_number, index_n=n, network=network))
-    if len(inputs) != n_inputs:
-        raise TransactionError("Error parsing inputs. Number of tx specified %d but %d found" % (n_inputs, len(inputs)))
-
-    outputs = []
-    n_outputs, size = varbyteint_to_int(rawtx[cursor:cursor + 9])
-    cursor += size
-    output_total = 0
-    for n in range(0, n_outputs):
-        value = int.from_bytes(rawtx[cursor:cursor + 8][::-1], 'big')
-        cursor += 8
-        lock_script_size, size = varbyteint_to_int(rawtx[cursor:cursor + 9])
-        cursor += size
-        lock_script = rawtx[cursor:cursor + lock_script_size]
-        cursor += lock_script_size
-        outputs.append(Output(value=value, lock_script=lock_script, network=network, output_n=n))
-        output_total += value
-    if not outputs:
-        raise TransactionError("Error no outputs found in this transaction")
-
-    if witness_type == 'segwit':
-        for n in range(0, len(inputs)):
-            n_items, size = varbyteint_to_int(rawtx[cursor:cursor + 9])
-            cursor += size
-            witnesses = []
-            for m in range(0, n_items):
-                witness = b'\0'
-                item_size, size = varbyteint_to_int(rawtx[cursor:cursor + 9])
-                if item_size:
-                    witness = rawtx[cursor + size:cursor + item_size + size]
-                cursor += item_size + size
-                witnesses.append(witness)
-            if witnesses and not coinbase:
-                script_type = inputs[n].script_type
-                witness_script_type = 'sig_pubkey'
-                signatures = []
-                keys = []
-                sigs_required = 1
-                public_hash = b''
-                for witness in witnesses:
-                    if witness == b'\0':
-                        continue
-                    if 69 <= len(witness) <= 74 and witness[0:1] == b'\x30':  # witness is DER encoded signature
-                        signatures.append(witness)
-                    elif len(witness) == 33 and len(signatures) == 1:  # key from sig_pk
-                        keys.append(witness)
-                    else:
-                        rsds = script_deserialize(witness, script_types=['multisig'])
-                        if not rsds['script_type'] == 'multisig':
-                            _logger.warning("Could not parse witnesses in transaction. Multisig redeemscript expected")
-                            witness_script_type = 'unknown'
-                            script_type = 'unknown'
-                        else:
-                            keys = rsds['signatures']
-                            sigs_required = rsds['number_of_sigs_m']
-                            witness_script_type = 'p2sh'
-                            script_type = 'p2sh_multisig'
-
-                inp_witness_type = inputs[n].witness_type
-                usd = script_deserialize(inputs[n].unlocking_script, locking_script=True)
-
-                if usd['script_type'] == "p2wpkh" and witness_script_type == 'sig_pubkey':
-                    inp_witness_type = 'p2sh-segwit'
-                    script_type = 'p2sh_p2wpkh'
-                elif usd['script_type'] == "p2wsh" and witness_script_type == 'p2sh':
-                    inp_witness_type = 'p2sh-segwit'
-                    script_type = 'p2sh_p2wsh'
-                inputs[n] = Input(prev_txid=inputs[n].prev_txid, output_n=inputs[n].output_n, keys=keys,
-                                  unlocking_script_unsigned=inputs[n].unlocking_script_unsigned,
-                                  unlocking_script=inputs[n].unlocking_script, sigs_required=sigs_required,
-                                  signatures=signatures, witness_type=inp_witness_type, script_type=script_type,
-                                  sequence=inputs[n].sequence, index_n=inputs[n].index_n, public_hash=public_hash,
-                                  network=inputs[n].network, witnesses=witnesses)
-    if len(rawtx[cursor:]) != 4 and check_size:
-        raise TransactionError("Error when deserializing raw transaction, bytes left for locktime must be 4 not %d" %
-                               len(rawtx[cursor:]))
-    locktime = int.from_bytes(rawtx[cursor:cursor + 4][::-1], 'big')
-
-    return Transaction(inputs, outputs, locktime, version, network, size=cursor + 4, output_total=output_total,
-                       coinbase=coinbase, flag=flag, witness_type=witness_type, rawtx=rawtx)
-
-
-@deprecated  # Replaced by Script class in version 0.6
-def script_deserialize(script, script_types=None, locking_script=None, size_bytes_check=True):  # pragma: no cover
-    """
-    Deserialize a script: determine type, number of signatures and script data.
-    
-    :param script: Raw script
-    :type script: str, bytes
-    :param script_types: Limit script type determination to this list. Leave to default None to search in all script types.
-    :type script_types: list
-    :param locking_script: Only deserialize locking scripts. Specify False to only deserialize for unlocking scripts. Default is None for both
-    :type locking_script: bool
-    :param size_bytes_check: Check if script or signature starts with size bytes and remove size bytes before parsing. Default is True
-    :type size_bytes_check: bool
-
-    :return list: With this items: [script_type, data, number_of_sigs_n, number_of_sigs_m] 
-    """
-
-    def _parse_data(scr, max_items=None, redeemscript_expected=False, item_length=0):
-        # scr = to_bytes(scr)
-        items = []
-        total_length = 0
-        if 69 <= len(scr) <= 74 and scr[:1] == b'\x30':
-            return [scr], len(scr)
-        while len(scr) and (max_items is None or max_items > len(items)):
-            itemlen, size = varbyteint_to_int(scr[0:9])
-            if item_length and itemlen != item_length:
-                break
-            if not item_length and itemlen not in [20, 33, 65, 70, 71, 72, 73]:
-                break
-            if redeemscript_expected and len(scr[itemlen + 1:]) < 20:
-                break
-            items.append(scr[1:itemlen + 1])
-            total_length += itemlen + size
-            scr = scr[itemlen + 1:]
-        return items, total_length
-
-    def _get_empty_data():
-        return {'script_type': '', 'keys': [], 'signatures': [], 'hashes': [], 'redeemscript': b'',
-                'number_of_sigs_n': 1, 'number_of_sigs_m': 1, 'locktime_cltv': None, 'locktime_csv': None, 'result': ''}
-
-    def _parse_script(script):
-        found = False
-        cur = 0
-        data = _get_empty_data()
-        for script_type in script_types:
-            cur = 0
-            try:
-                ost = SCRIPT_TYPES_UNLOCKING[script_type]
-            except KeyError:
-                ost = SCRIPT_TYPES_LOCKING[script_type]
-            data = _get_empty_data()
-            data['script_type'] = script_type
-            found = True
-            for ch in ost:
-                if cur >= len(script):
-                    found = False
-                    break
-                cur_char = script[cur]
-                if ch[:4] == 'hash':
-                    hash_length = 0
-                    if len(ch) > 5:
-                        hash_length = int(ch.split("-")[1])
-                    s, total_length = _parse_data(script[cur:], 1, item_length=hash_length)
-                    if not s:
-                        found = False
-                        break
-                    data['hashes'] += s
-                    cur += total_length
-                elif ch == 'signature':
-                    signature_length = 0
-                    s, total_length = _parse_data(script[cur:], 1, item_length=signature_length)
-                    if not s:
-                        found = False
-                        break
-                    data['signatures'] += s
-                    cur += total_length
-                elif ch == 'public_key':
-                    pk_size, size = varbyteint_to_int(script[cur:cur + 9])
-                    key = script[cur + size:cur + size + pk_size]
-                    if not key:
-                        found = False
-                        break
-                    data['keys'].append(key)
-                    cur += size + pk_size
-                elif ch == 'OP_RETURN':
-                    if cur_char == op.op_return and cur == 0:
-                        data.update({'op_return': script[cur + 1:]})
-                        cur = len(script)
-                        found = True
-                        break
-                    else:
-                        found = False
-                        break
-                elif ch == 'multisig':  # one or more signatures
-                    redeemscript_expected = False
-                    if 'redeemscript' in ost:
-                        redeemscript_expected = True
-                    s, total_length = _parse_data(script[cur:], redeemscript_expected=redeemscript_expected)
-                    if not s:
-                        found = False
-                        break
-                    data['signatures'] += s
-                    cur += total_length
-                elif ch == 'redeemscript':
-                    size_byte = 0
-                    if script[cur:cur + 1] == b'\x4c':
-                        size_byte = 1
-                    elif script[cur:cur + 1] == b'\x4d':
-                        size_byte = 2
-                    elif script[cur:cur + 1] == b'\x4e':
-                        size_byte = 3
-                    data['redeemscript'] = script[cur + 1 + size_byte:]
-                    data2 = script_deserialize(data['redeemscript'], locking_script=True)
-                    if 'signatures' not in data2 or not data2['signatures']:
-                        found = False
-                        break
-                    data['keys'] = data2['signatures']
-                    data['number_of_sigs_m'] = data2['number_of_sigs_m']
-                    data['number_of_sigs_n'] = data2['number_of_sigs_n']
-                    cur = len(script)
-                elif ch == 'push_size':
-                    push_size, size = varbyteint_to_int(script[cur:cur + 9])
-                    found = bool(len(script[cur:]) - size == push_size)
-                    if not found:
-                        break
-                elif ch == 'op_m':
-                    if cur_char in OP_N_CODES:
-                        data['number_of_sigs_m'] = cur_char - op.op_1 + 1
-                    else:
-                        found = False
-                        break
-                    cur += 1
-                elif ch == 'op_n':
-                    if cur_char in OP_N_CODES:
-                        data['number_of_sigs_n'] = cur_char - op.op_1 + 1
-                    else:
-                        found = False
-                        break
-                    if data['number_of_sigs_m'] > data['number_of_sigs_n']:
-                        raise TransactionError("Number of signatures to sign (%s) is higher then actual "
-                                               "amount of signatures (%s)" %
-                                               (data['number_of_sigs_m'], data['number_of_sigs_n']))
-                    if len(data['signatures']) > int(data['number_of_sigs_n']):
-                        raise TransactionError("%d signatures found, but %s sigs expected" %
-                                               (len(data['signatures']), data['number_of_sigs_n']))
-                    cur += 1
-                elif ch == 'SIGHASH_ALL':
-                    pass
-                    # if cur_char != SIGHASH_ALL:
-                    #     found = False
-                    #     break
-                elif ch == 'locktime_cltv':
-                    if len(script) < 4:
-                        found = False
-                        break
-                    data['locktime_cltv'] = int.from_bytes(script[cur:cur + 4], 'little')
-                    cur += 4
-                elif ch == 'locktime_csv':
-                    if len(script) < 4:
-                        found = False
-                        break
-                    data['locktime_csv'] = int.from_bytes(script[cur:cur + 4], 'little')
-                    cur += 4
-                else:
-                    try:
-                        if opcodenames.get(cur_char) == ch:
-                            cur += 1
-                        else:
-                            found = False
-                            data = _get_empty_data()
-                            break
-                    except IndexError:
-                        raise TransactionError("Opcode %s not found [type %s]" % (ch, script_type))
-            if found and not len(script[cur:]):  # Found is True and no remaining script to parse
-                break
-
-        if found and not len(script[cur:]):
-            return data, script[cur:]
-        data = _get_empty_data()
-        data['result'] = 'Script not recognised'
-        return data, ''
-
-    data = _get_empty_data()
-    script = to_bytes(script)
-    if not script:
-        data.update({'result': 'Empty script'})
-        return data
-
-    # Check if script starts with size byte
-    if size_bytes_check:
-        script_size, size = varbyteint_to_int(script[0:9])
-        if len(script[1:]) == script_size:
-            data = script_deserialize(script[1:], script_types, locking_script, size_bytes_check=False)
-            if 'result' in data and data['result'][:22] not in \
-                    ['Script not recognised', 'Empty script', 'Could not parse script']:
-                return data
-
-    if script_types is None:
-        if locking_script is None:
-            script_types = dict(SCRIPT_TYPES_UNLOCKING, **SCRIPT_TYPES_LOCKING)
-        elif locking_script:
-            script_types = SCRIPT_TYPES_LOCKING
-        else:
-            script_types = SCRIPT_TYPES_UNLOCKING
-    elif not isinstance(script_types, list):
-        script_types = [script_types]
-
-    locktime_cltv = 0
-    locktime_csv = 0
-    while len(script):
-        begin_script = script
-        data, script = _parse_script(script)
-        if begin_script == script:
-            break
-        if script and data['script_type'] == 'locktime_cltv':
-            locktime_cltv = data['locktime_cltv']
-        if script and data['script_type'] == 'locktime_csv':
-            locktime_csv = data['locktime_csv']
-    if data and data['result'] != 'Script not recognised':
-        data['locktime_cltv'] = locktime_cltv
-        data['locktime_csv'] = locktime_csv
-        return data
-
-    wrn_msg = "Could not parse script, unrecognized script"
-    # _logger.debug(wrn_msg)
-    data = _get_empty_data()
-    data['result'] = wrn_msg
-    return data
-
-
-@deprecated  # Replaced by Script class in version 0.6
-def script_to_string(script, name_data=False):  # pragma: no cover
-    """
-    Convert script to human-readable string format with OP-codes, signatures, keys, etc
-    
-    :param script: A locking or unlocking script
-    :type script: bytes, str
-    :param name_data: Replace signatures and keys strings with name
-    :type name_data: bool
-
-    :return str: 
-    """
-
-    # script = to_bytes(script)
-    data = script_deserialize(script)
-    if not data or data['script_type'] == 'empty':
-        return ""
-    if name_data:
-        name = 'signature'
-        if data['signatures'] and len(data['signatures'][0]) in [33, 65]:
-            name = 'key'
-        sigs = ' '.join(['%s-%d' % (name, i) for i in range(1, len(data['signatures']) + 1)])
-    else:
-        sigs = ' '.join([i.hex() for i in data['signatures']])
-
-    try:
-        scriptstr = SCRIPT_TYPES_LOCKING[data['script_type']]
-    except KeyError:
-        scriptstr = SCRIPT_TYPES_UNLOCKING[data['script_type']]
-    scriptstr = [sigs if x in ['signature', 'multisig', 'return_data'] else x for x in scriptstr]
-    if 'redeemscript' in data and data['redeemscript']:
-        redeemscript_str = script_to_string(data['redeemscript'], name_data=name_data)
-        scriptstr = [redeemscript_str if x == 'redeemscript' else x for x in scriptstr]
-    scriptstr = [opcodenames[80 + int(data['number_of_sigs_m'])] if x == 'op_m' else x for x in scriptstr]
-    scriptstr = [opcodenames[80 + int(data['number_of_sigs_n'])] if x == 'op_n' else x for x in scriptstr]
-
-    return ' '.join(scriptstr)
-
-
-@deprecated  # Replaced by Script class in version 0.6
-def _serialize_multisig_redeemscript(public_key_list, n_required=None):  # pragma: no cover
-    # Serialize m-to-n multisig script. Needs a list of public keys
-    for key in public_key_list:
-        if not isinstance(key, (str, bytes)):
-            raise TransactionError("Item %s in public_key_list is not of type string or bytes")
-    if n_required is None:
-        n_required = len(public_key_list)
-
-    script = int_to_varbyteint(op.op_1 + n_required - 1)
-    for key in public_key_list:
-        script += varstr(key)
-    script += int_to_varbyteint(op.op_1 + len(public_key_list) - 1)
-    script += b'\xae'  # 'OP_CHECKMULTISIG'
-
-    return script
-
-
-@deprecated  # Replaced by Script class in version 0.6
-def serialize_multisig_redeemscript(key_list, n_required=None, compressed=True):  # pragma: no cover
-    """
-    Create a multisig redeemscript used in a p2sh.
-
-    Contains the number of signatures, followed by the list of public keys and the OP-code for the number of signatures required.
-
-    :param key_list: List of public keys
-    :type key_list: Key, list
-    :param n_required: Number of required signatures
-    :type n_required: int
-    :param compressed: Use compressed public keys?
-    :type compressed: bool
-
-    :return bytes: A multisig redeemscript
-    """
-
-    if not key_list:
-        return b''
-    if not isinstance(key_list, list):
-        raise TransactionError("Argument public_key_list must be of type list")
-    if len(key_list) > 15:
-        raise TransactionError("Redeemscripts with more then 15 keys are non-standard and could result in "
-                               "locked up funds")
-    public_key_list = []
-    for k in key_list:
-        if isinstance(k, Key):
-            if compressed:
-                public_key_list.append(k.public_byte)
-            else:
-                public_key_list.append(k.public_uncompressed_byte)
-        elif len(k) == 65 and k[0:1] == b'\x04' or len(k) == 33 and k[0:1] in [b'\x02', b'\x03']:
-            public_key_list.append(k)
-        elif len(k) == 132 and k[0:2] == '04' or len(k) == 66 and k[0:2] in ['02', '03']:
-            public_key_list.append(bytes.fromhex(k))
-        else:
-            kobj = Key(k)
-            if compressed:
-                public_key_list.append(kobj.public_byte)
-            else:
-                public_key_list.append(kobj.public_uncompressed_byte)
-
-    return _serialize_multisig_redeemscript(public_key_list, n_required)
-
-
-@deprecated  # Replaced by Script class in version 0.6
-def _p2sh_multisig_unlocking_script(sigs, redeemscript, hash_type=None, as_list=False):  # pragma: no cover
-    usu = b'\x00'
-    if as_list:
-        usu = [usu]
-    if not isinstance(sigs, list):
-        sigs = [sigs]
-    for sig in sigs:
-        s = sig
-        if hash_type:
-            s += hash_type.to_bytes(1, 'big')
-        if as_list:
-            usu.append(s)
-        else:
-            usu += varstr(s)
-
-    rs_size = b''
-    size_byte = b''
-    if not as_list:
-        rs_size = int_to_varbyteint(len(redeemscript))
-        if len(rs_size) > 1:
-            rs_size = rs_size[1:]
-        if len(redeemscript) >= 76:
-            if len(rs_size) == 1:
-                size_byte = b'\x4c'
-            elif len(rs_size) == 2:
-                size_byte = b'\x4d'
-            else:
-                size_byte = b'\x4e'
-
-    redeemscript_str = size_byte + rs_size + redeemscript
-    if as_list:
-        usu.append(redeemscript_str)
-    else:
-        usu += redeemscript_str
-    return usu
-
-
-@deprecated  # Replaced by Script class in version 0.6
-def script_add_locktime_cltv(locktime_cltv, script):  # pragma: no cover
-    lockbytes = bytes([op.op_checklocktimeverify, op.op_drop])
-    if script and len(script) > 6:
-        if script[4:6] == lockbytes:
-            return script
-    return varstr(locktime_cltv.to_bytes(4, 'little')) + lockbytes + script
-
-
-@deprecated  # Replaced by Script class in version 0.6
-def script_add_locktime_csv(locktime_csv, script):  # pragma: no cover
-    lockbytes = bytes([op.op_checklocktimeverify, op.op_drop])
-    if script and len(script) > 6:
-        if script[4:6] == lockbytes:
-            return script
-    return varstr(locktime_csv.to_bytes(4, 'little')) + lockbytes + script
-
-
-def get_unlocking_script_type(locking_script_type, witness_type='legacy', multisig=False):
+def get_unlocking_script_type(
+    locking_script_type, witness_type="legacy", multisig=False
+):
     """
     Specify locking script type and get corresponding script type for unlocking script
 
@@ -587,17 +88,17 @@ def get_unlocking_script_type(locking_script_type, witness_type='legacy', multis
     :return str: Unlocking script type such as sig_pubkey or p2sh_multisig
     """
 
-    if locking_script_type in ['p2pkh', 'p2wpkh']:
-        return 'sig_pubkey'
-    elif locking_script_type == 'p2wsh' or (witness_type == 'legacy' and multisig):
-        return 'p2sh_multisig'
-    elif locking_script_type == 'p2sh':
+    if locking_script_type in ["p2pkh", "p2wpkh"]:
+        return "sig_pubkey"
+    elif locking_script_type == "p2wsh" or (witness_type == "legacy" and multisig):
+        return "p2sh_multisig"
+    elif locking_script_type == "p2sh":
         if not multisig:
-            return 'sig_pubkey'
+            return "sig_pubkey"
         else:
-            return 'p2sh_multisig'
-    elif locking_script_type == 'p2pk':
-        return 'signature'
+            return "p2sh_multisig"
+    elif locking_script_type == "p2pk":
+        return "signature"
     else:
         raise TransactionError("Unknown locking script type %s" % locking_script_type)
 
@@ -633,32 +134,60 @@ def transaction_update_spents(txs, address):
             txs[txs.index(t)].outputs[to.output_n].spent = spent
             if spent:
                 spending_tx = spend_list[(t.txid, to.output_n)]
-                spending_index_n = \
-                    [inp for inp in txs[txs.index(spending_tx)].inputs
-                     if inp.prev_txid.hex() == t.txid and inp.output_n_int == to.output_n][0].index_n
+                spending_index_n = [
+                    inp
+                    for inp in txs[txs.index(spending_tx)].inputs
+                    if inp.prev_txid.hex() == t.txid and inp.output_n_int == to.output_n
+                ][0].index_n
                 txs[txs.index(t)].outputs[to.output_n].spending_txid = spending_tx.txid
-                txs[txs.index(t)].outputs[to.output_n].spending_index_n = spending_index_n
+                txs[txs.index(t)].outputs[
+                    to.output_n
+                ].spending_index_n = spending_index_n
     return txs
 
 
 class Input(object):
     """
     Transaction Input class, used by Transaction class
-    
+
     An Input contains a reference to an UTXO or Unspent Transaction Output (prev_txid + output_n).
     To spend the UTXO an unlocking script can be included to prove ownership.
-    
+
     Inputs are verified by the Transaction class.
     """
 
-    def __init__(self, prev_txid, output_n, keys=None, signatures=None, public_hash=b'', unlocking_script=b'',
-                 unlocking_script_unsigned=None, script=None, script_type=None, address='',
-                 sequence=0xffffffff, compressed=None, sigs_required=None, sort=False, index_n=0,
-                 value=0, double_spend=False, locktime_cltv=None, locktime_csv=None, key_path='', witness_type=None,
-                 witnesses=None, encoding=None, strict=True, network=DEFAULT_NETWORK):
+    def __init__(
+        self,
+        prev_txid,
+        output_n,
+        keys=None,
+        signatures=[],
+        public_hash=b"",
+        unlocking_script="",
+        unlocking_script_unsigned="",
+        script=None,
+        script_type="sig_pubkey",
+        address="",
+        sequence=0xFFFFFFFF,
+        compressed=True,
+        sigs_required=None,
+        sort=False,
+        index_n=0,
+        value=0,
+        double_spend=False,
+        locktime_cltv=None,
+        locktime_csv=None,
+        key_path="",
+        witness_type="legacy",
+        witnesses=None,
+        encoding="base58",
+        strict=True,
+        network=DEFAULT_NETWORK,
+        utxo_script=b"",
+    ):
         """
         Create a new transaction input
-        
+
         :param prev_txid: Transaction hash of the UTXO (previous output) which will be spent.
         :type prev_txid: bytes, str
         :param output_n: Output number in previous transaction.
@@ -709,162 +238,109 @@ class Input(object):
         :type network: str, Network
         """
 
-        self.prev_txid = to_bytes(prev_txid)
-        self.output_n = output_n
-        if isinstance(output_n, int):
-            self.output_n_int = output_n
-            self.output_n = output_n.to_bytes(4, 'big')
-        else:
-            self.output_n_int = int.from_bytes(output_n, 'big')
-            self.output_n = output_n
-        self.unlocking_script = b'' if unlocking_script is None else to_bytes(unlocking_script)
-        self.unlocking_script_unsigned = b'' if unlocking_script_unsigned is None \
-            else to_bytes(unlocking_script_unsigned)
+        print("In input __init__")
+        print("sequence", sequence)
+        print("prevtxid", prev_txid)
+        self.outpoint = OutPoint(prev_txid[::-1], output_n)
+        print("outpoint txid", binascii.hexlify(self.outpoint.txid))
+        self.txin = TxIn(self.outpoint, NewScript(), sequence, utxo_script)
+        # self.txin = TxIn(self.outpoint, NewScript(), sequence)
+        print("utxo script", binascii.hexlify(utxo_script))
+
         self.script = None
         self.hash_type = SIGHASH_ALL
+
+        self.compressed = compressed
+        self.index_n = index_n
+        self.value = value_to_satoshi(value, network=network)
+        self.public_hash = public_hash
+        self.sort = sort
+        self.redeemscript = b""
+        self.script_type = script_type
+        self.double_spend = double_spend
+        self.locktime_cltv = locktime_cltv
+        self.locktime_csv = locktime_csv
+        self.witness_type = witness_type
+        self.encoding = encoding
+        self.valid = None
+        self.key_path = key_path
+        self.script_code = b""
+        self.script = script
+        self.sigs_required = sigs_required if sigs_required else 1
+        self.witnesses = witnesses
+        self.keys = []
+        self.signatures = signatures
+        self.compressed = compressed
+        self.keys = keys
+        self.strict = strict
+
+        print("VALUE", value)
+        print("check for sigs", signatures)
+
+        if isinstance(output_n, int):
+            self.output_n_int = output_n
+            self.output_n = output_n.to_bytes(4, "big")
+        else:
+            self.output_n_int = int.from_bytes(output_n, "big")
+            self.output_n = output_n
+
+        self.unlocking_script = to_bytes(unlocking_script)
+        self.unlocking_script_unsigned = to_bytes(unlocking_script_unsigned)
+
+        print("unlocking script", unlocking_script)
+        print("unlocking script unsigned", unlocking_script_unsigned)
+
         if isinstance(sequence, numbers.Number):
             self.sequence = sequence
         else:
-            self.sequence = int.from_bytes(sequence, 'little')
-        self.compressed = compressed
+            self.sequence = int.from_bytes(sequence, "little")
+
         self.network = network
+
         if not isinstance(network, Network):
             self.network = Network(network)
-        self.index_n = index_n
-        self.value = value_to_satoshi(value, network=network)
-        if not keys:
-            keys = []
-        self.keys = []
-        if not isinstance(keys, list):
-            keys = [keys]
-        self.public_hash = public_hash
-        if not signatures:
-            signatures = []
-        if not isinstance(signatures, list):
-            signatures = [signatures]
-        self.sort = sort
+
         if isinstance(address, Address):
+            print("Address is of type address")
             self.address = address.address
             self.encoding = address.encoding
             self.network = address.network
         else:
             self.address = address
-        self.signatures = []
-        self.redeemscript = b''
-        self.script_type = script_type
-        if self.prev_txid == b'\0' * 32:
-            self.script_type = 'coinbase'
-        self.double_spend = double_spend
-        self.locktime_cltv = locktime_cltv
-        self.locktime_csv = locktime_csv
-        self.witness_type = witness_type
-        if encoding is None:
-            self.encoding = 'base58'
-            if self.witness_type == 'segwit':
-                self.encoding = 'bech32'
-        else:
-            self.encoding = encoding
-        self.valid = None
-        self.key_path = key_path
 
-        self.witnesses = []
-        if isinstance(witnesses, bytes):
-            n_items, cursor = varbyteint_to_int(witnesses[0:9])
-            for m in range(0, n_items):
-                witness = b'\0'
-                item_size, size = varbyteint_to_int(witnesses[cursor:cursor + 9])
-                if item_size:
-                    witness = witnesses[cursor + size:cursor + item_size + size]
-                cursor += item_size + size
-                self.witnesses.append(witness)
-        elif witnesses:
-            self.witnesses = [bytes.fromhex(w) if isinstance(w, str) else w for w in witnesses]
-        self.script_code = b''
-        self.script = script
+        print("address type: ", type(address))
+        print(address)
 
-        # If unlocking script is specified extract keys, signatures, type from script
-        if self.unlocking_script and self.script_type != 'coinbase' and not (signatures and keys) and not script:
-            self.script = Script.parse_bytes(self.unlocking_script, strict=strict)
-            self.keys = self.script.keys
-            self.signatures = self.script.signatures
-            if len(self.signatures):
-                self.hash_type = self.signatures[0].hash_type
-            sigs_required = self.script.sigs_required
-            self.redeemscript = self.script.redeemscript if self.script.redeemscript else self.redeemscript
-            if len(self.script.script_types) == 1 and not self.script_type:
-                self.script_type = self.script.script_types[0]
-            elif self.script.script_types == ['signature_multisig', 'multisig']:
-                self.script_type = 'p2sh_multisig'
-            # TODO: Check if this if is necessary
-            if 'p2wpkh' in self.script.script_types:
-                self.script_type = 'p2sh_p2wpkh'
-                self.witness_type = 'p2sh-segwit'
-            elif 'p2wsh' in self.script.script_types:
-                self.script_type = 'p2sh_p2wsh'
-                self.witness_type = 'p2sh-segwit'
-        if self.unlocking_script_unsigned and not self.signatures:
-            ls = Script.parse_bytes(self.unlocking_script_unsigned, strict=strict)
-            self.public_hash = self.public_hash if not ls.public_hash else ls.public_hash
-            if ls.script_types[0] in ['p2wpkh', 'p2wsh']:
-                self.witness_type = 'segwit'
-        self.sigs_required = sigs_required if sigs_required else 1
+        if self.outpoint.txid == b"\0" * 32:
+            self.script_type = "coinbase"
 
-        if self.script_type is None and self.witness_type is None and self.witnesses:
-            self.witness_type = 'segwit'
-        if self.witness_type is None or self.witness_type == 'legacy':
-            # if self.script_type in ['p2wpkh', 'p2wsh', 'p2sh_p2wpkh', 'p2sh_p2wsh']:
-            if self.script_type in ['p2wpkh', 'p2wsh']:
-                self.witness_type = 'segwit'
-            elif self.script_type in ['p2sh_p2wpkh', 'p2sh_p2wsh']:
-                self.witness_type = 'p2sh-segwit'
-            else:
-                self.witness_type = 'legacy'
-        elif self.witness_type == 'segwit' and self.script_type == 'sig_pubkey' and encoding is None:
-            self.encoding = 'bech32'
-        if not self.script_type:
-            self.script_type = 'sig_pubkey'
-
-        for key in keys:
-            if not isinstance(key, Key):
-                kobj = Key(key, network=network, strict=strict)
-            else:
-                kobj = key
-            if kobj not in self.keys:
-                # if self.compressed is not None and kobj.compressed != self.compressed:
-                #     _logger.warning("Key compressed is %s but Input class compressed argument is %s " %
-                #                     (kobj.compressed, self.compressed))
-                self.compressed = kobj.compressed
-                self.keys.append(kobj)
-        if self.compressed is None:
-            self.compressed = True
         if self.sort:
             self.keys.sort(key=lambda k: k.public_byte)
-        self.strict = strict
 
+        print("signatures in input", signatures)
         for sig in signatures:
             if not isinstance(sig, Signature):
                 try:
                     sig = Signature.parse(sig)
                 except Exception as e:
-                    _logger.error("Could not parse signature %s in Input. Error: %s" % (to_hexstring(sig), e))
+                    _logger.error(
+                        "Could not parse signature %s in Input. Error: %s"
+                        % (to_hexstring(sig), e)
+                    )
                     continue
-            if sig.as_der_encoded() not in [x.as_der_encoded() for x in self.signatures]:
+            if sig.as_der_encoded() not in [
+                x.as_der_encoded() for x in self.signatures
+            ]:
                 self.signatures.append(sig)
                 if sig.hash_type:
                     self.hash_type = sig.hash_type
 
-        # fixme: p2wpkh == p2sh_p2wpkh
-        if self.script_type in ['sig_pubkey', 'p2sh_p2wpkh', 'p2wpkh'] and self.witnesses and not self.signatures and \
-                self.script_type in ['sig_pubkey', 'p2sh_p2wpkh'] and len(self.witnesses) == 2 and \
-                b'\0' not in self.witnesses:
-            self.signatures = [Signature.parse_bytes(self.witnesses[0])]
-            self.hash_type = self.signatures[0].hash_type
-            self.keys = [Key(self.witnesses[1], network=self.network)]
-
         self.update_scripts(hash_type=self.hash_type)
 
     @classmethod
-    def parse(cls, raw, witness_type='segwit', index_n=0, strict=True, network=DEFAULT_NETWORK):
+    def parse(
+        cls, raw, witness_type="segwit", index_n=0, strict=True, network=DEFAULT_NETWORK
+    ):
         """
         Parse raw BytesIO string and return Input object
 
@@ -882,22 +358,39 @@ class Input(object):
         :return Input:
         """
         prev_hash = raw.read(32)[::-1]
+        print("prev hash:", binascii.hexlify(prev_hash))
         if len(prev_hash) != 32:
-            raise TransactionError("Input transaction hash not found. Probably malformed raw transaction")
+            raise TransactionError(
+                "Input transaction hash not found. Probably malformed raw transaction"
+            )
         output_n = raw.read(4)[::-1]
+        print("output_n", int(binascii.hexlify(output_n), 16))
         unlocking_script_size = read_varbyteint(raw)
+        print("unlock size", unlocking_script_size)
+
         unlocking_script = raw.read(unlocking_script_size)
+        print("unlocking", binascii.hexlify(unlocking_script))
+
         # TODO - handle non-standard input script b'\1\0',
         #  see tx 38cf5779d1c5ca32b79cd5052b54e824102e878f041607d3b962038f5a8cf1ed
         # if unlocking_script_size == 1 and unlocking_script == b'\0':
 
-        inp_type = 'legacy'
-        if witness_type == 'segwit' and not unlocking_script_size:
-            inp_type = 'segwit'
+        inp_type = "legacy"
+        if witness_type == "segwit" and not unlocking_script_size:
+            inp_type = "segwit"
+
         sequence_number = raw.read(4)
 
-        return Input(prev_txid=prev_hash, output_n=output_n, unlocking_script=unlocking_script,
-                     witness_type=inp_type, sequence=sequence_number, index_n=index_n, strict=strict, network=network)
+        return Input(
+            prev_txid=prev_hash,
+            output_n=output_n,
+            unlocking_script=unlocking_script,
+            witness_type=inp_type,
+            sequence=sequence_number,
+            index_n=index_n,
+            strict=strict,
+            network=network,
+        )
 
     def update_scripts(self, hash_type=SIGHASH_ALL):
         """
@@ -911,92 +404,53 @@ class Input(object):
 
         :return bool: Always returns True when method is completed
         """
+        print("in input update")
+        print("script type:", self.script_type)
+        print("public hash", self.public_hash)
+        print("keys", self.keys)
 
-        addr_data = b''
-        unlock_script = b''
-        if self.script_type in ['sig_pubkey', 'p2sh_p2wpkh', 'p2wpkh']:  # fixme: p2wpkh == p2sh_p2wpkh
-            if not self.public_hash and self.keys:
-                self.public_hash = self.keys[0].hash160
-            if not self.keys and not self.public_hash:
-                return
-            self.script_code = b'\x76\xa9\x14' + self.public_hash + b'\x88\xac'
-            self.unlocking_script_unsigned = self.script_code
-            addr_data = self.public_hash
-            if self.signatures and self.keys:
-                self.witnesses = [self.signatures[0].as_der_encoded() if hash_type else b'', self.keys[0].public_byte]
-                unlock_script = b''.join([bytes(varstr(w)) for w in self.witnesses])
-            if not self.unlocking_script or self.strict:
-                if self.witness_type == 'p2sh-segwit':
-                    self.unlocking_script = varstr(b'\0' + varstr(self.public_hash))
-                elif self.witness_type == 'segwit':
-                    self.unlocking_script = b''
-                elif unlock_script != b'':
-                    self.unlocking_script = unlock_script
-        elif self.script_type in ['p2sh_multisig', 'p2sh_p2wsh', 'p2wsh']:  # fixme: p2sh_p2wsh == p2wsh
-            if not self.redeemscript and self.keys:
-                self.redeemscript = Script(script_types=['multisig'], keys=self.keys,
-                                           sigs_required=self.sigs_required).serialize()
-            if self.redeemscript:
-                if self.witness_type == 'segwit' or self.witness_type == 'p2sh-segwit':
-                    self.public_hash = hashlib.sha256(self.redeemscript).digest()
-                else:
-                    self.public_hash = hash160(self.redeemscript)
-            addr_data = self.public_hash
-            self.unlocking_script_unsigned = self.redeemscript
+        unlock_script = b""
 
-            if self.redeemscript and self.keys:
-                n_tag = self.redeemscript[0:1]
-                if not isinstance(n_tag, int):
-                    n_tag = int.from_bytes(n_tag, 'big')
-                self.sigs_required = n_tag - 80
-                signatures = [s.as_der_encoded() for s in self.signatures[:self.sigs_required]]
-                if b'' in signatures:
-                    raise TransactionError("Empty signature found in signature list when signing. "
-                                           "Is DER encoded version of signature defined?")
-                if len(signatures) == self.sigs_required:  # and not self.unlocking_script
-                    unlock_script_obj = Script(script_types=['p2sh_multisig'], keys=[k.public_byte for k in self.keys],
-                                               signatures=self.signatures[:self.sigs_required],
-                                               sigs_required=self.sigs_required, redeemscript=self.redeemscript)
-                    if self.witness_type in ['segwit', 'p2sh-segwit']:
-                        unlock_script = unlock_script_obj.serialize_list()
-                    else:
-                        unlock_script = unlock_script_obj.serialize()
-                if self.witness_type == 'segwit':
-                    script_code = b''
-                    for k in self.keys:
-                        script_code += varstr(k.public_byte) + b'\xad\xab'
-                    if len(script_code) > 3:
-                        script_code = script_code[:-2] + b'\xac'
-                    self.script_code = script_code
-                    if signatures:
-                        self.witnesses = unlock_script
-                elif self.witness_type == 'p2sh-segwit':
-                    self.unlocking_script = varstr(b'\0' + varstr(self.public_hash))
-                    self.script_code = self.unlocking_script
-                    if signatures:
-                        self.witnesses = unlock_script
-                elif unlock_script != b'' and self.strict:
-                    self.unlocking_script = unlock_script
-        elif self.script_type == 'signature':
-            if self.keys:
-                self.script_code = varstr(self.keys[0].public_byte) + b'\xac'
+        match self.script_type:
+            case "sig_pubkey" | "p2sh_p2wpkh" | "p2wpkh":
+                # fixme: p2wpkh == p2sh_p2wpkh
+                if not self.public_hash and self.keys:
+                    self.public_hash = self.keys[0].hash160
+
+                if not self.keys and not self.public_hash:
+                    return
+
+                self.script_code = b"\x76\xa9\x14" + self.public_hash + b"\x88\xac"
                 self.unlocking_script_unsigned = self.script_code
-                addr_data = self.keys[0].public_byte
-            if self.signatures and not self.unlocking_script:
-                self.unlocking_script = varstr(self.signatures[0].as_der_encoded())
-        elif self.script_type not in ['coinbase', 'unknown'] and self.strict:
-            raise TransactionError("Unknown unlocking script type %s for input %d" % (self.script_type, self.index_n))
-        if addr_data and not self.address:
-            self.address = Address(hashed_data=addr_data, encoding=self.encoding, network=self.network,
-                                   script_type=self.script_type, witness_type=self.witness_type).address
 
-        if self.locktime_cltv:
-            self.unlocking_script_unsigned = script_add_locktime_cltv(self.locktime_cltv,
-                                                                      self.unlocking_script_unsigned)
-            self.unlocking_script = script_add_locktime_cltv(self.locktime_cltv, self.unlocking_script)
-        elif self.locktime_csv:
-            self.unlocking_script_unsigned = script_add_locktime_csv(self.locktime_csv, self.unlocking_script_unsigned)
-            self.unlocking_script = script_add_locktime_csv(self.locktime_csv, self.unlocking_script)
+                if self.signatures and self.keys:
+                    print("we got sigs and keys yo")
+                    print("sigs", self.signatures)
+                    self.witnesses = [
+                        self.signatures[0].as_der_encoded() if hash_type else b"",
+                        self.keys[0].public_byte,
+                    ]
+                    print("witnesses in update", self.witnesses)
+                    unlock_script = b"".join([bytes(varstr(w)) for w in self.witnesses])
+                    print("unlock script", unlock_script)
+
+                if not self.unlocking_script or self.strict:
+                    self.unlocking_script = unlock_script
+
+            # case "signature":
+            #     print("in sig case")
+            #     if self.keys:
+            #         self.script_code = varstr(self.keys[0].public_byte) + b"\xac"
+            #         self.unlocking_script_unsigned = self.script_code
+            #         addr_data = self.keys[0].public_byte
+            #     if self.signatures and not self.unlocking_script:
+            #         self.unlocking_script = varstr(self.signatures[0].as_der_encoded())
+            case _:
+                raise TransactionError(
+                    "Unknown unlocking script type %s for input %d"
+                    % (self.script_type, self.index_n)
+                )
+
         return True
 
     def verify(self, transaction_hash):
@@ -1011,7 +465,7 @@ class Input(object):
         :return bool: True if enough signatures provided and if all signatures are valid
         """
 
-        if self.script_type == 'coinbase':
+        if self.script_type == "coinbase":
             self.valid = True
             return True
         if not self.signatures:
@@ -1024,8 +478,9 @@ class Input(object):
         while sigs_verified < self.sigs_required:
             if key_n >= len(self.keys):
                 _logger.info(
-                    "Not enough valid signatures provided for input %d. Found %d signatures but %d needed" %
-                    (self.index_n, sigs_verified, self.sigs_required))
+                    "Not enough valid signatures provided for input %d. Found %d signatures but %d needed"
+                    % (self.index_n, sigs_verified, self.sigs_required)
+                )
                 return False
             if sig_n >= len(self.signatures):
                 _logger.info("No valid signatures found")
@@ -1047,7 +502,7 @@ class Input(object):
     def as_dict(self):
         """
         Get transaction input information in json format
-        
+
         :return dict: Json with output_n, prev_txid, output_n, type, address, public_key, public_hash, unlocking_script and sequence
         """
 
@@ -1057,58 +512,79 @@ class Input(object):
         if len(self.keys) == 1:
             pks = pks[0]
         return {
-            'index_n': self.index_n,
-            'prev_txid': self.prev_txid.hex(),
-            'output_n': self.output_n_int,
-            'script_type': self.script_type,
-            'address': self.address,
-            'value': self.value,
-            'public_keys': pks,
-            'compressed': self.compressed,
-            'encoding': self.encoding,
-            'double_spend': self.double_spend,
-            'script': self.unlocking_script.hex(),
-            'redeemscript': self.redeemscript.hex(),
-            'sequence': self.sequence,
-            'signatures': [s.hex() for s in self.signatures],
-            'sigs_required': self.sigs_required,
-            'locktime_cltv': self.locktime_cltv,
-            'locktime_csv': self.locktime_csv,
-            'public_hash': self.public_hash.hex(),
-            'script_code': self.script_code.hex(),
-            'unlocking_script': self.unlocking_script.hex(),
-            'unlocking_script_unsigned': self.unlocking_script_unsigned.hex(),
-            'witness_type': self.witness_type,
-            'witness': b''.join(self.witnesses).hex(),
-            'sort': self.sort,
-            'valid': self.valid,
+            "index_n": self.index_n,
+            "prev_txid": self.outpoint.txid.hex(),
+            "output_n": self.output_n_int,
+            "script_type": self.script_type,
+            "address": self.address,
+            "value": self.value,
+            "public_keys": pks,
+            "compressed": self.compressed,
+            "encoding": self.encoding,
+            "double_spend": self.double_spend,
+            "script": self.unlocking_script.hex(),
+            "redeemscript": self.redeemscript.hex(),
+            "sequence": self.sequence,
+            "signatures": [s.hex() for s in self.signatures],
+            "sigs_required": self.sigs_required,
+            "locktime_cltv": self.locktime_cltv,
+            "locktime_csv": self.locktime_csv,
+            "public_hash": self.public_hash.hex(),
+            "script_code": self.script_code.hex(),
+            "unlocking_script": self.unlocking_script.hex(),
+            "unlocking_script_unsigned": self.unlocking_script_unsigned.hex(),
+            "witness_type": self.witness_type,
+            "witness": b"".join(self.witnesses).hex(),
+            "sort": self.sort,
+            "valid": self.valid,
         }
 
     def __repr__(self):
-        return "<Input(prev_txid='%s', output_n=%d, address='%s', index_n=%s, type='%s')>" % \
-               (self.prev_txid.hex(), self.output_n_int, self.address, self.index_n, self.script_type)
+        return (
+            "<Input(prev_txid='%s', output_n=%d, address='%s', index_n=%s, type='%s')>"
+            % (
+                self.outpoint.txid.hex(),
+                self.output_n_int,
+                self.address,
+                self.index_n,
+                self.script_type,
+            )
+        )
 
 
 class Output(object):
     """
     Transaction Output class, normally part of Transaction class.
-    
+
     Contains the amount and destination of a transaction.
     """
 
-    def __init__(self, value, address='', public_hash=b'', public_key=b'', lock_script=b'', spent=False,
-                 output_n=0, script_type=None, encoding=None, spending_txid='', spending_index_n=None, strict=True,
-                 network=DEFAULT_NETWORK):
+    def __init__(
+        self,
+        value,
+        address="",
+        public_hash=b"",
+        public_key=b"",
+        lock_script=b"",
+        spent=False,
+        output_n=0,
+        script_type="p2pkh",
+        encoding="base58",
+        spending_txid="",
+        spending_index_n=None,
+        strict=True,
+        network=DEFAULT_NETWORK,
+    ):
         """
         Create a new transaction output
-        
+
         A transaction outputs locks the specified amount to a public key. Anyone with the private key can unlock
         this output.
-        
-        The transaction output class contains an amount and the destination which can be provided either as address, 
+
+        The transaction output class contains an amount and the destination which can be provided either as address,
         public key, public key hash or a locking script. Only one needs to be provided as they all can be derived
         from each other, but you can provide as many attributes as you know to improve speed.
-        
+
         :param value: Amount of output in the smallest denominator integers (Satoshi's) or as Value object or string
         :type value: int, Value, str
         :param address: Destination address of output. Leave empty to derive from other attributes you provide. An instance of an Address or HDKey class is allowed as argument.
@@ -1137,16 +613,25 @@ class Output(object):
         :type network: str, Network
         """
 
+        print("output public hash param", public_hash)
+        print("output address", address)
+
         if strict and not (address or public_hash or public_key or lock_script):
-            raise TransactionError("Please specify address, lock_script, public key or public key hash when "
-                                   "creating output")
+            raise TransactionError(
+                "Please specify address, lock_script, public key or public key hash when "
+                "creating output"
+            )
 
         self.network = network
         if not isinstance(network, Network):
             self.network = Network(network)
+
         self.value = value_to_satoshi(value, network=network)
-        self.lock_script = b'' if lock_script is None else to_bytes(lock_script)
+
+        self.lock_script = b"" if lock_script is None else to_bytes(lock_script)
+
         self.public_hash = to_bytes(public_hash)
+
         if isinstance(address, Address):
             self._address = address.address
             self._address_obj = address
@@ -1155,80 +640,74 @@ class Output(object):
             self._address_obj = address.address_obj
             public_key = address.public_byte
             if not script_type:
-                script_type = script_type_default(address.witness_type, address.multisig, True)
+                script_type = script_type_default(
+                    address.witness_type, address.multisig, True
+                )
             self.public_hash = address.hash160
         else:
             self._address = address
             self._address_obj = None
+
         self.public_key = to_bytes(public_key)
+
         self.compressed = True
         self.k = None
+
         self.versionbyte = self.network.prefix_address
         self.script_type = script_type
         self.encoding = encoding
-        if not self._address and self.encoding is None:
-            self.encoding = 'base58'
         self.spent = spent
         self.output_n = output_n
+
+        print("lock scripto", self.lock_script)
         self.script = Script.parse_bytes(self.lock_script, strict=strict)
 
-        if self._address_obj:
-            self.script_type = self._address_obj.script_type if script_type is None else script_type
-            self.public_hash = self._address_obj.hash_bytes
-            self.network = self._address_obj.network
-            self.encoding = self._address_obj.encoding
-
-        if self.script:
-            self.script_type = self.script_type if not self.script.script_types else self.script.script_types[0]
-            if self.script_type in ['p2wpkh', 'p2wsh', 'p2tr']:
-                self.encoding = 'bech32'
-            self.public_hash = self.script.public_hash
-            if self.script.keys:
-                self.public_key = self.script.keys[0].public_hex
-
-        if self.public_key and not self.public_hash:
-            k = Key(self.public_key, is_private=False, network=network)
-            self.public_hash = k.hash160
-        elif self._address and (not self.public_hash or not self.script_type or not self.encoding):
-            address_dict = deserialize_address(self._address, self.encoding, self.network.name)
-            if address_dict['script_type'] and not script_type:
-                self.script_type = address_dict['script_type']
+        if self._address and (
+            not self.public_hash or not self.script_type or not self.encoding
+        ):
+            address_dict = deserialize_address(
+                self._address, self.encoding, self.network.name
+            )
+            print(self._address)
+            print(self.encoding)
+            print(self.network.name)
+            print("add dict", address_dict)
+            if address_dict["script_type"] and not script_type:
+                self.script_type = address_dict["script_type"]
             if not self.script_type:
-                raise TransactionError("Could not determine script type of address %s" % self._address)
-            self.encoding = address_dict['encoding']
-            network_guesses = address_dict['networks']
-            if address_dict['network'] and self.network.name != address_dict['network']:
-                raise TransactionError("Address %s is from %s network and transaction from %s network" %
-                                       (self._address, address_dict['network'], self.network.name))
+                raise TransactionError(
+                    "Could not determine script type of address %s" % self._address
+                )
+            self.encoding = address_dict["encoding"]
+            network_guesses = address_dict["networks"]
+            if address_dict["network"] and self.network.name != address_dict["network"]:
+                raise TransactionError(
+                    "Address %s is from %s network and transaction from %s network"
+                    % (self._address, address_dict["network"], self.network.name)
+                )
             elif self.network.name not in network_guesses:
-                raise TransactionError("Network for output address %s is different from transaction network. %s not "
-                                       "in %s" % (self._address, self.network.name, network_guesses))
-            self.public_hash = address_dict['public_key_hash_bytes']
-        if not self.encoding:
-            self.encoding = 'base58'
-            if self.script_type in ['p2wpkh', 'p2wsh', 'p2tr']:
-                self.encoding = 'bech32'
+                raise TransactionError(
+                    "Network for output address %s is different from transaction network. %s not "
+                    "in %s" % (self._address, self.network.name, network_guesses)
+                )
+            self.public_hash = address_dict["public_key_hash_bytes"]
+            print("hash from add", self.public_hash)
 
-        if self.script_type is None:
-            self.script_type = 'p2pkh'
-            if self.encoding == 'bech32':
-                self.script_type = 'p2wpkh'
-        # if self.public_hash and not self._address:
-        #     self.address_obj = Address(hashed_data=self.public_hash, script_type=self.script_type,
-        #                                encoding=self.encoding, network=self.network)
-        #     self.address = self.address_obj.address
-        #     self.versionbyte = self.address_obj.prefix
         if not self.script and strict and (self.public_hash or self.public_key):
-            self.script = Script(script_types=[self.script_type], public_hash=self.public_hash, keys=[self.public_key])
-            self.lock_script = self.script.serialize()
+            self.script = P2PKHScript(self.public_hash)
+
+            print("lock shit")
+            print(self.script)
+
+            self.lock_script = self.script.raw()
+
             if not self.script:
-                raise TransactionError("Unknown output script type %s, please provide locking script" %
-                                       self.script_type)
+                raise TransactionError(
+                    "Unknown output script type %s, please provide locking script"
+                    % self.script_type
+                )
         self.spending_txid = spending_txid
         self.spending_index_n = spending_index_n
-        # if self.script_type != 'nulldata' and value < self.network.dust_amount:
-        #     raise TransactionError("Output to %s must be more than dust amount %d" %
-        #                            (self.address, self.network.dust_amount))
 
     @property
     def address_obj(self):
@@ -1239,8 +718,12 @@ class Output(object):
         """
         if not self._address_obj:
             if self.public_hash:
-                self._address_obj = Address(hashed_data=self.public_hash, script_type=self.script_type,
-                                            encoding=self.encoding, network=self.network)
+                self._address_obj = Address(
+                    hashed_data=self.public_hash,
+                    script_type=self.script_type,
+                    encoding=self.encoding,
+                    network=self.network,
+                )
                 self._address = self._address_obj.address
                 self.versionbyte = self._address_obj.prefix
         return self._address_obj
@@ -1250,7 +733,7 @@ class Output(object):
         if not self._address:
             address_obj = self.address_obj
             if not address_obj:
-                return ''
+                return ""
             self._address = address_obj.address
         return self._address
 
@@ -1270,10 +753,16 @@ class Output(object):
 
         :return Output:
         """
-        value = int.from_bytes(raw.read(8)[::-1], 'big')
+        value = int.from_bytes(raw.read(8)[::-1], "big")
         lock_script_size = read_varbyteint(raw)
         lock_script = raw.read(lock_script_size)
-        return Output(value=value, lock_script=lock_script, output_n=output_n, strict=strict, network=network)
+        return Output(
+            value=value,
+            lock_script=lock_script,
+            output_n=output_n,
+            strict=strict,
+            network=network,
+        )
 
     # TODO: Write and rewrite locktime methods
     # def set_locktime - CLTV (BIP65)
@@ -1340,20 +829,24 @@ class Output(object):
         """
 
         return {
-            'value': self.value,
-            'script': self.lock_script.hex(),
-            'script_type': self.script_type,
-            'public_key': self.public_key.hex(),
-            'public_hash': self.public_hash.hex(),
-            'address': self.address,
-            'output_n': self.output_n,
-            'spent': self.spent,
-            'spending_txid': self.spending_txid,
-            'spending_index_n': self.spending_index_n,
+            "value": self.value,
+            "script": self.lock_script.hex(),
+            "script_type": self.script_type,
+            "public_key": self.public_key.hex(),
+            "public_hash": self.public_hash.hex(),
+            "address": self.address,
+            "output_n": self.output_n,
+            "spent": self.spent,
+            "spending_txid": self.spending_txid,
+            "spending_index_n": self.spending_index_n,
         }
 
     def __repr__(self):
-        return "<Output(value=%d, address=%s, type=%s)>" % (self.value, self.address, self.script_type)
+        return "<Output(value=%d, address=%s, type=%s)>" % (
+            self.value,
+            self.address,
+            self.script_type,
+        )
 
 
 class Transaction(object):
@@ -1370,29 +863,6 @@ class Transaction(object):
 
     Each input in the transaction can be signed with the sign method provided a valid private key.
     """
-
-    @staticmethod
-    @deprecated  # Replaced by Transaction.parse() in version 0.6
-    def import_raw(rawtx, network=DEFAULT_NETWORK, check_size=True):  # pragma: no cover
-        """
-        Import a raw transaction and create a Transaction object
-
-        Uses the transaction_deserialize method to parse the raw transaction and then calls the init method of
-        this transaction class to create the transaction object
-
-        REPLACED BY THE PARSE() METHOD
-
-        :param rawtx: Raw transaction string
-        :type rawtx: bytes, str
-        :param network: Network, leave empty for default
-        :type network: str, Network
-        :param check_size: Check if no bytes are left when parsing is finished. Disable when parsing list of transactions, such as the transactions in a raw block. Default is True
-        :type check_size: bool
-
-        :return Transaction:
-        """
-
-        return transaction_deserialize(rawtx, network=network, check_size=check_size)
 
     @classmethod
     def parse(cls, rawtx, strict=True, network=DEFAULT_NETWORK):
@@ -1431,32 +901,66 @@ class Transaction(object):
         """
         coinbase = False
         flag = None
-        witness_type = 'legacy'
+        witness_type = "legacy"
         network = network
+        overewintered = False
+        n_version_group_id = None
+        expiryheight = 0
+        njoinsplit = None
+        vjoinsplit = None
+        joinsplitpubkey = None
+        joinsplitsig = None
         if not isinstance(network, Network):
             cls.network = Network(network)
-        raw_bytes = b''
+        raw_bytes = b""
 
         try:
             pos_start = rawtx.tell()
         except AttributeError:
-            raise TransactionError("Provide raw transaction as BytesIO. Use parse, parse_bytes, parse_hex to parse "
-                                   "other data types")
+            raise TransactionError(
+                "Provide raw transaction as BytesIO. Use parse, parse_bytes, parse_hex to parse "
+                "other data types"
+            )
 
-        version = rawtx.read(4)[::-1]
-        if rawtx.read(1) == b'\0':
+        header = rawtx.read(4)[::-1]
+        print(header)
+        le = binascii.hexlify(header)
+
+        if int(le, 16) & (1 << 31):
+            # overwinter bit set
+            version = int(le, 16) & 0x7FFFFFFF
+            # assert version in (3, 4)
+
+            n_version_group_id = rawtx.read(4)[::-1]
+            print(n_version_group_id)
+            print(n_version_group_id[::-1])
+
+        else:
+            # v1 / v2
+            version = header
+
+        if rawtx.read(1) == b"\0":
             flag = rawtx.read(1)
-            if flag == b'\1':
-                witness_type = 'segwit'
+            if flag == b"\1":
+                witness_type = "segwit"
         else:
             rawtx.seek(-1, 1)
 
         n_inputs = read_varbyteint(rawtx)
+
         inputs = []
+        print("parsebytesio", network)
         for n in range(0, n_inputs):
-            inp = Input.parse(rawtx, index_n=n, witness_type=witness_type, strict=strict, network=network)
-            if inp.prev_txid == 32 * b'\0':
+            inp = Input.parse(
+                rawtx,
+                index_n=n,
+                witness_type=witness_type,
+                strict=strict,
+                network=network,
+            )
+            if inp.prev_txid == 32 * b"\0":
                 coinbase = True
+            print(inp.as_dict())
             inputs.append(inp)
 
         outputs = []
@@ -1469,7 +973,7 @@ class Transaction(object):
         if not outputs:
             raise TransactionError("Error no outputs found in this transaction")
 
-        if witness_type == 'segwit':
+        if witness_type == "segwit":
             for n in range(0, len(inputs)):
                 n_items = read_varbyteint(rawtx)
                 if not n_items:
@@ -1482,22 +986,31 @@ class Transaction(object):
                     s = Script.parse_bytes(varstr(witness), strict=strict)
                     script += s
 
-                inputs[n].script = script if not inputs[n].script else inputs[n].script + script
+                inputs[n].script = (
+                    script if not inputs[n].script else inputs[n].script + script
+                )
                 inputs[n].keys = script.keys
                 inputs[n].signatures = script.signatures
-                if script.script_types[0][:13] == 'p2sh_multisig' or script.script_types[0] == 'signature_multisig':  # , 'p2sh_p2wsh'
-                    inputs[n].script_type = 'p2sh_multisig'
+                if (
+                    script.script_types[0][:13] == "p2sh_multisig"
+                    or script.script_types[0] == "signature_multisig"
+                ):  # , 'p2sh_p2wsh'
+                    inputs[n].script_type = "p2sh_multisig"
                     inputs[n].redeemscript = inputs[n].witnesses[-1]
-                elif inputs[n].script_type == 'p2wpkh':
-                    inputs[n].script_type = 'p2sh_p2wpkh'
-                    inputs[n].witness_type = 'p2sh-segwit'
-                elif inputs[n].script_type == 'p2wpkh' or inputs[n].script_type == 'p2wsh':
-                    inputs[n].script_type = 'p2sh_p2wsh'
-                    inputs[n].witness_type = 'p2sh-segwit'
+                elif inputs[n].script_type == "p2wpkh":
+                    inputs[n].script_type = "p2sh_p2wpkh"
+                    inputs[n].witness_type = "p2sh-segwit"
+                elif (
+                    inputs[n].script_type == "p2wpkh"
+                    or inputs[n].script_type == "p2wsh"
+                ):
+                    inputs[n].script_type = "p2sh_p2wsh"
+                    inputs[n].witness_type = "p2sh-segwit"
 
                 inputs[n].update_scripts()
-
-        locktime = int.from_bytes(rawtx.read(4)[::-1], 'big')
+        locktime = int.from_bytes(rawtx.read(4)[::-1], "big")
+        nexpiryheight = rawtx.read(4)[::-1]
+        print("nexpiryheight", binascii.hexlify(nexpiryheight))
         raw_len = len(raw_bytes)
         if not raw_bytes:
             pos_end = rawtx.tell()
@@ -1505,8 +1018,19 @@ class Transaction(object):
             rawtx.seek(pos_start)
             raw_bytes = rawtx.read(raw_len)
 
-        return Transaction(inputs, outputs, locktime, version, network, size=raw_len, output_total=output_total,
-                           coinbase=coinbase, flag=flag, witness_type=witness_type, rawtx=raw_bytes)
+        return Transaction(
+            inputs,
+            outputs,
+            locktime,
+            version,
+            network,
+            size=raw_len,
+            output_total=output_total,
+            coinbase=coinbase,
+            flag=flag,
+            witness_type=witness_type,
+            rawtx=raw_bytes,
+        )
 
     @classmethod
     def parse_hex(cls, rawtx, strict=True, network=DEFAULT_NETWORK):
@@ -1523,6 +1047,7 @@ class Transaction(object):
 
         :return Transaction:
         """
+        print("parse_hex", network)
 
         return cls.parse_bytesio(BytesIO(bytes.fromhex(rawtx)), strict, network)
 
@@ -1561,20 +1086,48 @@ class Transaction(object):
         if not filename and not txid:
             raise TransactionError("Please supply filename or txid")
         elif not filename and txid:
-            p = Path(BCL_DATA_DIR, '%s.tx' % txid)
+            p = Path(BCL_DATA_DIR, "%s.tx" % txid)
         else:
             p = Path(filename)
-            if not p.parent or str(p.parent) == '.':
+            if not p.parent or str(p.parent) == ".":
                 p = Path(BCL_DATA_DIR, filename)
-        f = p.open('rb')
+        f = p.open("rb")
         t = pickle.load(f)
         f.close()
         return t
 
-    def __init__(self, inputs=None, outputs=None, locktime=0, version=None,
-                 network=DEFAULT_NETWORK, fee=None, fee_per_kb=None, size=None, txid='', txhash='', date=None,
-                 confirmations=None, block_height=None, block_hash=None, input_total=0, output_total=0, rawtx=b'',
-                 status='new', coinbase=False, verified=False, witness_type='legacy', flag=None):
+    def __init__(
+        self,
+        inputs=None,
+        outputs=None,
+        locktime=0,
+        version=None,
+        network=DEFAULT_NETWORK,
+        fee=None,
+        fee_per_kb=None,
+        size=None,
+        txid="",
+        txhash="",
+        date=None,
+        confirmations=None,
+        block_height=None,
+        block_hash=None,
+        input_total=0,
+        output_total=0,
+        rawtx=b"",
+        status="new",
+        coinbase=False,
+        verified=False,
+        witness_type="legacy",
+        flag=None,
+        overwintered=False,
+        nversiongroupid=None,
+        expiryheight=0,
+        njoinsplit=None,
+        vjoinsplit=None,
+        joinsplitpubkey=None,
+        joinsplitsig=None,
+    ):
         """
         Create a new transaction class with provided inputs and outputs.
 
@@ -1629,45 +1182,68 @@ class Transaction(object):
         :type flag: bytes, str
 
         """
+        print("motherflippin expiry", expiryheight)
+        self.tx_new = LegacyTransaction(version=4)
 
-        self.coinbase = coinbase
         self.inputs = []
+        print("inputs", inputs)
         if inputs is not None:
             for inp in inputs:
                 self.inputs.append(inp)
             if not input_total:
                 input_total = sum([i.value for i in inputs])
+
         id_list = [i.index_n for i in self.inputs]
+
         if list(dict.fromkeys(id_list)) != id_list:
-            _logger.info("Identical transaction indexes (tid) found in inputs, please specify unique index. "
-                         "Indexes will be automatically recreated")
+            _logger.info(
+                "Identical transaction indexes (tid) found in inputs, please specify unique index. "
+                "Indexes will be automatically recreated"
+            )
             index_n = 0
             for inp in self.inputs:
                 inp.index_n = index_n
                 index_n += 1
+
+        print("outputs", outputs)
         if outputs is None:
             self.outputs = []
         else:
             self.outputs = outputs
             if not output_total:
                 output_total = sum([o.value for o in outputs])
+
         if fee is None and output_total and input_total:
             fee = input_total - output_total
-            if fee < 0 or fee == 0 and not self.coinbase:
-                raise TransactionError("Transaction inputs total value must be greater then total value of "
-                                       "transaction outputs")
-        if not version:
-            version = b'\x00\x00\x00\x01'
+            if fee < 0 or fee == 0:
+                raise TransactionError(
+                    "Transaction inputs total value must be greater then total value of "
+                    "transaction outputs"
+                )
+
         if isinstance(version, int):
-            self.version = version.to_bytes(4, 'big')
-            self.version_int = version
+            if version == 4:
+                self.version = b"\x80\x00\x00\x04"
+                self.nversiongroupid = b"\x89/ \x85"
+                self.version_int = version
+            else:
+                self.version = version.to_bytes(4, "big")
+                self.version_int = version
         else:
             self.version = version
-            self.version_int = int.from_bytes(version, 'big')
+            self.version_int = int.from_bytes(version, "big")
         self.locktime = locktime
         self.network = network
         if not isinstance(network, Network):
             self.network = Network(network)
+
+        # version 2/3+
+        self.expiryheight = expiryheight
+        self.njoinsplit = njoinsplit
+        self.vjoinsplit = vjoinsplit
+        self.joinsplitpubkey = joinsplitpubkey
+        joinsplitsig = joinsplitsig
+
         self.flag = flag
         self.fee = fee
         self.fee_per_kb = fee_per_kb
@@ -1686,15 +1262,30 @@ class Transaction(object):
         self.verified = verified
         self.witness_type = witness_type
         self.change = 0
+
         self.calc_weight_units()
-        if self.witness_type not in ['legacy', 'segwit']:
-            raise TransactionError("Please specify a valid witness type: legacy or segwit")
-        if not self.txid:
-            self.txid = self.signature_hash()[::-1].hex()
+        if self.witness_type not in ["legacy", "segwit"]:
+            raise TransactionError(
+                "Please specify a valid witness type: legacy or segwit"
+            )
+
+        print("end of init txid", self.txid)
+        # this is just the hash of the tx right now, not the actual txid
+        # if not self.txid:
+        #     self.txid = self.signature_hash()[::-1].hex()
+        # print("now txid", self.txid)
+        from pprint import pprint
+
+        pprint(self.__dict__)
 
     def __repr__(self):
-        return "<Transaction(id=%s, inputs=%d, outputs=%d, status=%s, network=%s)>" % \
-               (self.txid, len(self.inputs), len(self.outputs), self.status, self.network.name)
+        return "<Transaction(id=%s, inputs=%d, outputs=%d, status=%s, network=%s)>" % (
+            self.txid,
+            len(self.inputs),
+            len(self.outputs),
+            self.status,
+            self.network.name,
+        )
 
     def __str__(self):
         return self.txid
@@ -1739,29 +1330,28 @@ class Transaction(object):
         for o in self.outputs:
             outputs.append(o.as_dict())
         return {
-            'txid': self.txid,
-            'date': self.date,
-            'network': self.network.name,
-            'witness_type': self.witness_type,
-            'coinbase': self.coinbase,
-            'flag': None if not self.flag else ord(self.flag),
-            'txhash': self.txhash,
-            'confirmations': self.confirmations,
-            'block_height': self.block_height,
-            'block_hash': self.block_hash,
-            'fee': self.fee,
-            'fee_per_kb': self.fee_per_kb,
-            'inputs': inputs,
-            'outputs': outputs,
-            'input_total': self.input_total,
-            'output_total': self.output_total,
-            'version': self.version_int,
-            'locktime': self.locktime,
-            'raw': self.raw_hex(),
-            'size': self.size,
-            'vsize': self.vsize,
-            'verified': self.verified,
-            'status': self.status
+            "txid": self.txid,
+            "date": self.date,
+            "network": self.network.name,
+            "witness_type": self.witness_type,
+            "flag": None if not self.flag else ord(self.flag),
+            "txhash": self.txhash,
+            "confirmations": self.confirmations,
+            "block_height": self.block_height,
+            "block_hash": self.block_hash,
+            "fee": self.fee,
+            "fee_per_kb": self.fee_per_kb,
+            "inputs": inputs,
+            "outputs": outputs,
+            "input_total": self.input_total,
+            "output_total": self.output_total,
+            "version": self.version_int,
+            "locktime": self.locktime,
+            "raw": self.raw_hex(),
+            "size": self.size,
+            "vsize": self.vsize,
+            "verified": self.verified,
+            "status": self.status,
         }
 
     def as_json(self):
@@ -1781,11 +1371,13 @@ class Transaction(object):
         print("Transaction %s" % self.txid)
         print("Date: %s" % self.date)
         print("Network: %s" % self.network.name)
-        if self.locktime and self.locktime != 0xffffffff:
+        if self.locktime and self.locktime != 0xFFFFFFFF:
             if self.locktime < 500000000:
                 print("Locktime: Until block %d" % self.locktime)
             else:
-                print("Locktime: Until %s UTC" % datetime.utcfromtimestamp(self.locktime))
+                print(
+                    "Locktime: Until %s UTC" % datetime.utcfromtimestamp(self.locktime)
+                )
         print("Version: %d" % self.version_int)
         print("Witness type: %s" % self.witness_type)
         print("Status: %s" % self.status)
@@ -1793,47 +1385,79 @@ class Transaction(object):
         print("Inputs")
         replace_by_fee = False
         for ti in self.inputs:
-            print("-", ti.address, Value.from_satoshi(ti.value, network=self.network).str(1), ti.prev_txid.hex(),
-                  ti.output_n_int)
+            print(
+                "-",
+                ti.address,
+                Value.from_satoshi(ti.value, network=self.network).str(1),
+                ti.outpoint.txid.hex(),
+                ti.output_n_int,
+            )
             validstr = "not validated"
             if ti.valid:
                 validstr = "valid"
             elif ti.valid is False:
                 validstr = "invalid"
-            print("  %s %s; sigs: %d (%d-of-%d) %s" %
-                  (ti.witness_type, ti.script_type, len(ti.signatures), ti.sigs_required or 0, len(ti.keys), validstr))
+            print(
+                "  %s %s; sigs: %d (%d-of-%d) %s"
+                % (
+                    ti.witness_type,
+                    ti.script_type,
+                    len(ti.signatures),
+                    ti.sigs_required or 0,
+                    len(ti.keys),
+                    validstr,
+                )
+            )
             if ti.sequence <= SEQUENCE_REPLACE_BY_FEE:
                 replace_by_fee = True
             if ti.sequence <= SEQUENCE_LOCKTIME_DISABLE_FLAG:
                 if ti.sequence & SEQUENCE_LOCKTIME_TYPE_FLAG:
-                    print("  Relative timelock for %d seconds" % (512 * (ti.sequence - SEQUENCE_LOCKTIME_TYPE_FLAG)))
+                    print(
+                        "  Relative timelock for %d seconds"
+                        % (512 * (ti.sequence - SEQUENCE_LOCKTIME_TYPE_FLAG))
+                    )
                 else:
                     print("  Relative timelock for %d blocks" % ti.sequence)
             if ti.locktime_cltv:
                 if ti.locktime_cltv & SEQUENCE_LOCKTIME_TYPE_FLAG:
-                    print("  Check Locktime Verify (CLTV) for %d seconds" %
-                          (512 * (ti.locktime_cltv - SEQUENCE_LOCKTIME_TYPE_FLAG)))
+                    print(
+                        "  Check Locktime Verify (CLTV) for %d seconds"
+                        % (512 * (ti.locktime_cltv - SEQUENCE_LOCKTIME_TYPE_FLAG))
+                    )
                 else:
-                    print("  Check Locktime Verify (CLTV) for %d blocks" % ti.locktime_cltv)
+                    print(
+                        "  Check Locktime Verify (CLTV) for %d blocks"
+                        % ti.locktime_cltv
+                    )
             if ti.locktime_csv:
                 if ti.locktime_csv & SEQUENCE_LOCKTIME_TYPE_FLAG:
-                    print("  Check Sequence Verify Timelock (CSV) for %d seconds" %
-                          (512 * (ti.locktime_csv - SEQUENCE_LOCKTIME_TYPE_FLAG)))
+                    print(
+                        "  Check Sequence Verify Timelock (CSV) for %d seconds"
+                        % (512 * (ti.locktime_csv - SEQUENCE_LOCKTIME_TYPE_FLAG))
+                    )
                 else:
-                    print("  Check Sequence Verify Timelock (CSV) for %d blocks" % ti.locktime_csv)
+                    print(
+                        "  Check Sequence Verify Timelock (CSV) for %d blocks"
+                        % ti.locktime_csv
+                    )
 
         print("Outputs")
         for to in self.outputs:
-            if to.script_type == 'nulldata':
+            if to.script_type == "nulldata":
                 print("- NULLDATA ", to.lock_script[2:])
             else:
-                spent_str = ''
+                spent_str = ""
                 if to.spent:
-                    spent_str = 'S'
+                    spent_str = "S"
                 elif to.spent is False:
-                    spent_str = 'U'
-                print("-", to.address, Value.from_satoshi(to.value, network=self.network).str(1), to.script_type,
-                      spent_str)
+                    spent_str = "U"
+                print(
+                    "-",
+                    to.address,
+                    Value.from_satoshi(to.value, network=self.network).str(1),
+                    to.script_type,
+                    spent_str,
+                )
         if replace_by_fee:
             print("Replace by fee: Enabled")
         print("Size: %s" % self.size)
@@ -1857,12 +1481,15 @@ class Transaction(object):
 
         :return:
         """
-        if blocks == 0 or blocks == 0xffffffff:
-            self.inputs[input_index_n].sequence = 0xffffffff
+        if blocks == 0 or blocks == 0xFFFFFFFF:
+            self.inputs[input_index_n].sequence = 0xFFFFFFFF
             self.sign(index_n=input_index_n, replace_signatures=True)
             return
         if blocks > SEQUENCE_LOCKTIME_MASK:
-            raise TransactionError("Number of nSequence timelock blocks exceeds %d" % SEQUENCE_LOCKTIME_MASK)
+            raise TransactionError(
+                "Number of nSequence timelock blocks exceeds %d"
+                % SEQUENCE_LOCKTIME_MASK
+            )
         self.inputs[input_index_n].sequence = blocks
         self.version_int = 2
         self.sign_and_update(index_n=input_index_n)
@@ -1884,15 +1511,20 @@ class Transaction(object):
 
         :return:
         """
-        if seconds == 0 or seconds == 0xffffffff:
-            self.inputs[input_index_n].sequence = 0xffffffff
+        if seconds == 0 or seconds == 0xFFFFFFFF:
+            self.inputs[input_index_n].sequence = 0xFFFFFFFF
             self.sign(index_n=input_index_n, replace_signatures=True)
             return
         elif seconds < 512:
             seconds = 512
         elif (seconds // 512) > SEQUENCE_LOCKTIME_MASK:
-            raise TransactionError("Number of relative nSeqence timelock seconds exceeds %d" % SEQUENCE_LOCKTIME_MASK)
-        self.inputs[input_index_n].sequence = seconds // 512 + SEQUENCE_LOCKTIME_TYPE_FLAG
+            raise TransactionError(
+                "Number of relative nSeqence timelock seconds exceeds %d"
+                % SEQUENCE_LOCKTIME_MASK
+            )
+        self.inputs[input_index_n].sequence = (
+            seconds // 512 + SEQUENCE_LOCKTIME_TYPE_FLAG
+        )
         self.version_int = 2
         self.sign_and_update(index_n=input_index_n)
 
@@ -1907,18 +1539,20 @@ class Transaction(object):
 
         :return:
         """
-        if blocks == 0 or blocks == 0xffffffff:
-            self.locktime = 0xffffffff
+        if blocks == 0 or blocks == 0xFFFFFFFF:
+            self.locktime = 0xFFFFFFFF
             self.sign(replace_signatures=True)
             self.verify()
             return
         elif blocks > 500000000:
-            raise TransactionError("Number of locktime blocks must be below %d" % 500000000)
+            raise TransactionError(
+                "Number of locktime blocks must be below %d" % 500000000
+            )
         self.locktime = blocks
-        if blocks != 0 and blocks != 0xffffffff:
+        if blocks != 0 and blocks != 0xFFFFFFFF:
             for i in self.inputs:
-                if i.sequence == 0xffffffff:
-                    i.sequence = 0xfffffffd
+                if i.sequence == 0xFFFFFFFF:
+                    i.sequence = 0xFFFFFFFD
         self.sign_and_update()
 
     def set_locktime_time(self, timestamp):
@@ -1928,25 +1562,31 @@ class Transaction(object):
         :param timestamp: Transaction is valid after the given timestamp. Value must be between 500000000 and 0xfffffffe
         :return:
         """
-        if timestamp == 0 or timestamp == 0xffffffff:
-            self.locktime = 0xffffffff
+        if timestamp == 0 or timestamp == 0xFFFFFFFF:
+            self.locktime = 0xFFFFFFFF
             self.sign(replace_signatures=True)
             self.verify()
             return
 
         if timestamp <= 500000000:
-            raise TransactionError("Timestamp must have a value higher then %d" % 500000000)
-        if timestamp > 0xfffffffe:
-            raise TransactionError("Timestamp must have a value lower then %d" % 0xfffffffe)
+            raise TransactionError(
+                "Timestamp must have a value higher then %d" % 500000000
+            )
+        if timestamp > 0xFFFFFFFE:
+            raise TransactionError(
+                "Timestamp must have a value lower then %d" % 0xFFFFFFFE
+            )
         self.locktime = timestamp
 
         # Input sequence value must be below 0xffffffff
         for i in self.inputs:
-            if i.sequence == 0xffffffff:
-                i.sequence = 0xfffffffd
+            if i.sequence == 0xFFFFFFFF:
+                i.sequence = 0xFFFFFFFD
         self.sign_and_update()
 
-    def signature_hash(self, sign_id=None, hash_type=SIGHASH_ALL, witness_type=None, as_hex=False):
+    def signature_hash(
+        self, sign_id=None, hash_type=SIGHASH_ALL, witness_type=None, as_hex=False
+    ):
         """
         Double SHA256 Hash of Transaction signature
 
@@ -1961,7 +1601,49 @@ class Transaction(object):
 
         :return bytes: Transaction signature hash
         """
-        return double_sha256(self.signature(sign_id, hash_type, witness_type), as_hex=as_hex)
+        print("doing signature hash")
+        print(type(self.tx_new.vin[0].scriptSig))
+        print((self.tx_new.vin[0].scriptSig.__dict__))
+        print(binascii.hexlify(bytes(self.tx_new.vin[0].scriptSig)))
+        print("txin txid", binascii.hexlify(self.tx_new.vin[0].prevout.txid))
+        print("full tx", binascii.hexlify(bytes(self.tx_new)))
+
+        # sig = self.signature(sign_id, hash_type, witness_type)
+        # print("cigarillo")
+        # print(binascii.hexlify(sig))
+        # return double_sha256(sig, as_hex=as_hex)
+
+        print("sign id", sign_id)
+        NOT_AN_INPUT = -1
+        sighash = b""
+        if sign_id is not None:
+            # scriptcode = b"\x76\xa9\x14" + self.public_hash + b"\x88\xac"
+            print("utxo")
+            print(binascii.hexlify(self.tx_new.vin[sign_id].utxoscript))
+            scriptcode = self.tx_new.vin[sign_id].utxoscript
+            # scriptcode = b""
+            # scriptcode = self.tx_new.vin[sign_id].scriptSig
+
+            nIn = len(self.tx_new.vin)
+            print("nin", nIn)
+            if nIn == 1:
+                nIn = NOT_AN_INPUT
+            nHashType = SIGHASH_ALL if nIn == NOT_AN_INPUT else None
+
+            consensusBranchId = 0x76B809BB  # Sapling
+
+            sighash = signature_hash_sapling(
+                scriptcode,
+                self.tx_new,
+                nIn,
+                nHashType,
+                self.output_total,
+                consensusBranchId,
+            )
+            print("sighash here")
+            print(len(sighash))
+            print(binascii.hexlify(sighash))
+        return sighash
 
     def signature(self, sign_id=None, hash_type=SIGHASH_ALL, witness_type=None):
         """
@@ -1976,71 +1658,18 @@ class Transaction(object):
 
         :return bytes: Transaction signature
         """
-
+        print("in trans sig")
         if witness_type is None:
             witness_type = self.witness_type
-        if witness_type == 'legacy' or sign_id is None:
-            return self.raw(sign_id, hash_type, 'legacy')
-        elif witness_type in ['segwit', 'p2sh-segwit']:
-            return self.signature_segwit(sign_id, hash_type)
+        if witness_type == "legacy" or sign_id is None:
+            print("about to return raw")
+            # return bytes(self.tx_new)
+            print("blah")
+            raw = self.raw(sign_id, hash_type, "legacy")
+            print("in signature (raw)", raw)
+            return raw
         else:
             raise TransactionError("Witness_type %s not supported" % self.witness_type)
-
-    def signature_segwit(self, sign_id, hash_type=SIGHASH_ALL):
-        """
-        Serialize transaction signature for segregated witness transaction
-
-        :param sign_id: Index of input to sign
-        :type sign_id: int
-        :param hash_type: Specific hash type, default is SIGHASH_ALL
-        :type hash_type: int
-
-        :return bytes: Segwit transaction signature
-        """
-        assert (self.witness_type == 'segwit')
-        prevouts_serialized = b''
-        sequence_serialized = b''
-        outputs_serialized = b''
-        hash_prevouts = b'\0' * 32
-        hash_sequence = b'\0' * 32
-        hash_outputs = b'\0' * 32
-
-        for i in self.inputs:
-            prevouts_serialized += i.prev_txid[::-1] + i.output_n[::-1]
-            sequence_serialized += i.sequence.to_bytes(4, 'little')
-        if not hash_type & SIGHASH_ANYONECANPAY:
-            hash_prevouts = double_sha256(prevouts_serialized)
-            if (hash_type & 0x1f) != SIGHASH_SINGLE and (hash_type & 0x1f) != SIGHASH_NONE:
-                hash_sequence = double_sha256(sequence_serialized)
-        if (hash_type & 0x1f) != SIGHASH_SINGLE and (hash_type & 0x1f) != SIGHASH_NONE:
-            for o in self.outputs:
-                outputs_serialized += int(o.value).to_bytes(8, 'little')
-                outputs_serialized += varstr(o.lock_script)
-            hash_outputs = double_sha256(outputs_serialized)
-        elif (hash_type & 0x1f) != SIGHASH_SINGLE and sign_id < len(self.outputs):
-            outputs_serialized += int(self.outputs[sign_id].value).to_bytes(8, 'little')
-            outputs_serialized += varstr(self.outputs[sign_id].lock_script)
-            hash_outputs = double_sha256(outputs_serialized)
-
-        is_coinbase = self.inputs[sign_id].script_type == 'coinbase'
-        if not self.inputs[sign_id].value and not is_coinbase:
-            raise TransactionError("Need value of input %d to create transaction signature, value can not be 0" %
-                                   sign_id)
-
-        if not self.inputs[sign_id].redeemscript:
-            self.inputs[sign_id].redeemscript = self.inputs[sign_id].script_code
-
-        if (not self.inputs[sign_id].redeemscript or self.inputs[sign_id].redeemscript == b'\0') and \
-                self.inputs[sign_id].redeemscript != 'unknown' and not is_coinbase:
-            raise TransactionError("Redeem script missing")
-
-        ser_tx = \
-            self.version[::-1] + hash_prevouts + hash_sequence + self.inputs[sign_id].prev_txid[::-1] + \
-            self.inputs[sign_id].output_n[::-1] + \
-            varstr(self.inputs[sign_id].redeemscript) + int(self.inputs[sign_id].value).to_bytes(8, 'little') + \
-            self.inputs[sign_id].sequence.to_bytes(4, 'little') + \
-            hash_outputs + self.locktime.to_bytes(4, 'little') + hash_type.to_bytes(4, 'little')
-        return ser_tx
 
     def raw(self, sign_id=None, hash_type=SIGHASH_ALL, witness_type=None):
         """
@@ -2062,43 +1691,65 @@ class Transaction(object):
             witness_type = self.witness_type
 
         r = self.version[::-1]
-        if sign_id is None and witness_type == 'segwit':
-            r += b'\x00'  # marker (BIP 141)
-            r += b'\x01'  # flag (BIP 141)
+        if sign_id is None and witness_type == "segwit":
+            r += b"\x00"  # marker (BIP 141)
+            r += b"\x01"  # flag (BIP 141)
+
+        if self.nversiongroupid:
+            r += self.nversiongroupid[::-1]
 
         r += int_to_varbyteint(len(self.inputs))
-        r_witness = b''
+        r_witness = b""
         for i in self.inputs:
-            r += i.prev_txid[::-1] + i.output_n[::-1]
-            if i.witnesses and i.witness_type != 'legacy':
-                r_witness += int_to_varbyteint(len(i.witnesses)) + b''.join([bytes(varstr(w)) for w in i.witnesses])
+            r += i.outpoint.txid + i.output_n[::-1]
+            if i.witnesses and i.witness_type != "legacy":
+                r_witness += int_to_varbyteint(len(i.witnesses)) + b"".join(
+                    [bytes(varstr(w)) for w in i.witnesses]
+                )
             else:
-                r_witness += b'\0'
+                r_witness += b"\0"
             if sign_id is None:
+                print("sign id is none, using unlocking script")
                 r += varstr(i.unlocking_script)
             elif sign_id == i.index_n:
+                print("sign id, using unlock_script_unsigned???")
                 r += varstr(i.unlocking_script_unsigned)
             else:
-                r += b'\0'
-            r += i.sequence.to_bytes(4, 'little')
+                r += b"\0"
+            r += i.sequence.to_bytes(4, "little")
 
         r += int_to_varbyteint(len(self.outputs))
         for o in self.outputs:
             if o.value < 0:
                 raise TransactionError("Output value < 0 not allowed")
-            r += int(o.value).to_bytes(8, 'little')
+            print("ovalue")
+            print(int(o.value))
+            print(binascii.hexlify(int(o.value).to_bytes(8, "little")))
+            r += int(o.value).to_bytes(8, "little")
+            print("varstr", binascii.hexlify(varstr(o.lock_script)))
             r += varstr(o.lock_script)
 
-        if sign_id is None and witness_type == 'segwit':
+        if sign_id is None and witness_type == "segwit":
             r += r_witness
 
-        r += self.locktime.to_bytes(4, 'little')
+        r += self.locktime.to_bytes(4, "little")
+
+        # this is the hex version of blockheight int, padded to 8 chars
+        encoded = f"{self.expiryheight:08x}"
+        expiry_bytes = bytes(encoded, "utf-8")
+        # r += binascii.unhexlify(b"0013be69")[::-1]
+        r += binascii.unhexlify(expiry_bytes)[::-1]
+
         if sign_id is not None:
-            r += hash_type.to_bytes(4, 'little')
+            r += hash_type.to_bytes(4, "little")
         else:
-            if not self.size and b'' not in [i.unlocking_script for i in self.inputs]:
+            if not self.size and b"" not in [i.unlocking_script for i in self.inputs]:
                 self.size = len(r)
                 self.calc_weight_units()
+
+        r += binascii.unhexlify(b"0000000000000000000000")
+        print("returning raw", binascii.hexlify(r))
+
         return r
 
     def raw_hex(self, sign_id=None, hash_type=SIGHASH_ALL, witness_type=None):
@@ -2123,9 +1774,11 @@ class Transaction(object):
 
         :return bytes:
         """
-        witness_data = b''
+        witness_data = b""
         for i in self.inputs:
-            witness_data += int_to_varbyteint(len(i.witnesses)) + b''.join([bytes(varstr(w)) for w in i.witnesses])
+            witness_data += int_to_varbyteint(len(i.witnesses)) + b"".join(
+                [bytes(varstr(w)) for w in i.witnesses]
+            )
         return witness_data
 
     def verify(self):
@@ -2140,12 +1793,16 @@ class Transaction(object):
         self.verified = False
         for inp in self.inputs:
             try:
-                transaction_hash = self.signature_hash(inp.index_n, inp.hash_type, inp.witness_type)
+                transaction_hash = self.signature_hash(
+                    inp.index_n, inp.hash_type, inp.witness_type
+                )
             except TransactionError as e:
                 _logger.info("Could not create transaction hash. Error: %s" % e)
                 return False
             if not transaction_hash:
-                _logger.info("Need at least 1 key to create segwit transaction signature")
+                _logger.info(
+                    "Need at least 1 key to create segwit transaction signature"
+                )
                 return False
             self.verified = inp.verify(transaction_hash)
             if not self.verified:
@@ -2154,8 +1811,15 @@ class Transaction(object):
         self.verified = True
         return True
 
-    def sign(self, keys=None, index_n=None, multisig_key_n=None, hash_type=SIGHASH_ALL, fail_on_unknown_key=True,
-             replace_signatures=False):
+    def sign(
+        self,
+        keys=None,
+        index_n=None,
+        multisig_key_n=None,
+        hash_type=SIGHASH_ALL,
+        fail_on_unknown_key=True,
+        replace_signatures=False,
+    ):
         """
         Sign the transaction input with provided private key
 
@@ -2175,48 +1839,68 @@ class Transaction(object):
         :return None:
         """
 
+        print("about to sign the input")
+        print(keys)
+        print(index_n)
+        print(hash_type)
+
         if index_n is None:
             tids = range(len(self.inputs))
         else:
             tids = [index_n]
 
-        if keys is None:
-            keys = []
-        elif not isinstance(keys, list):
-            keys = [keys]
-
         for tid in tids:
             n_signs = 0
-            tid_keys = [k if isinstance(k, (HDKey, Key)) else Key(k, compressed=self.inputs[tid].compressed)
-                        for k in keys]
+            tid_keys = [
+                k
+                if isinstance(k, (HDKey, Key))
+                else Key(k, compressed=self.inputs[tid].compressed)
+                for k in keys
+            ]
+
             for k in self.inputs[tid].keys:
                 if k.is_private and k not in tid_keys:
                     tid_keys.append(k)
+
             # If input does not contain any keys, try using provided keys
             if not self.inputs[tid].keys:
                 self.inputs[tid].keys = tid_keys
                 self.inputs[tid].update_scripts(hash_type=hash_type)
-            if self.inputs[tid].script_type == 'coinbase':
+
+            if self.inputs[tid].script_type == "coinbase":
                 raise TransactionError("Can not sign coinbase transactions")
+
             pub_key_list = [k.public_byte for k in self.inputs[tid].keys]
             n_total_sigs = len(self.inputs[tid].keys)
-            sig_domain = [''] * n_total_sigs
+            sig_domain = [""] * n_total_sigs
 
             txid = self.signature_hash(tid, witness_type=self.inputs[tid].witness_type)
+            print("in sign", binascii.hexlify(txid))
+
             for key in tid_keys:
                 # Check if signature signs known key and is not already in list
                 if key.public_byte not in pub_key_list:
                     if fail_on_unknown_key:
-                        raise TransactionError("This key does not sign any known key: %s" % key.public_hex)
+                        raise TransactionError(
+                            "This key does not sign any known key: %s" % key.public_hex
+                        )
                     else:
-                        _logger.info("This key does not sign any known key: %s" % key.public_hex)
+                        _logger.info(
+                            "This key does not sign any known key: %s" % key.public_hex
+                        )
                         continue
-                if not replace_signatures and key in [x.public_key for x in self.inputs[tid].signatures]:
+
+                if not replace_signatures and key in [
+                    x.public_key for x in self.inputs[tid].signatures
+                ]:
                     _logger.info("Key %s already signed" % key.public_hex)
                     break
 
                 if not key.private_byte:
-                    raise TransactionError("Please provide a valid private key to sign the transaction")
+                    raise TransactionError(
+                        "Please provide a valid private key to sign the transaction"
+                    )
+                print("private bytes", key.private_byte)
                 sig = sign(txid, key)
                 newsig_pos = pub_key_list.index(key.public_byte)
                 sig_domain[newsig_pos] = sig
@@ -2227,23 +1911,29 @@ class Transaction(object):
 
             # Add already known signatures on correct position
             n_sigs_to_insert = len(self.inputs[tid].signatures)
+
             for sig in self.inputs[tid].signatures:
                 if not sig.public_key:
                     break
                 newsig_pos = pub_key_list.index(sig.public_key.public_byte)
-                if sig_domain[newsig_pos] == '':
+                if sig_domain[newsig_pos] == "":
                     sig_domain[newsig_pos] = sig
                     n_sigs_to_insert -= 1
+
             if n_sigs_to_insert:
                 for sig in self.inputs[tid].signatures:
-                    free_positions = [i for i, s in enumerate(sig_domain) if s == '']
+                    free_positions = [i for i, s in enumerate(sig_domain) if s == ""]
                     for pos in free_positions:
                         sig_domain[pos] = sig
                         n_sigs_to_insert -= 1
                         break
+
             if n_sigs_to_insert:
-                _logger.info("Some signatures are replaced with the signatures of the provided keys")
-            self.inputs[tid].signatures = [s for s in sig_domain if s != '']
+                _logger.info(
+                    "Some signatures are replaced with the signatures of the provided keys"
+                )
+
+            self.inputs[tid].signatures = [s for s in sig_domain if s != ""]
             self.inputs[tid].update_scripts(hash_type)
 
     def sign_and_update(self, index_n=None):
@@ -2256,20 +1946,44 @@ class Transaction(object):
         :return:
         """
 
-        self.version = self.version_int.to_bytes(4, 'big')
+        print("in sign and update!!")
+        self.version = self.version_int.to_bytes(4, "big")
         self.sign(index_n=index_n, replace_signatures=True)
         self.txid = self.signature_hash()[::-1].hex()
+        print(self.txid)
         self.size = len(self.raw())
         self.calc_weight_units()
         self.update_totals()
         if self.fee:
             self.fee_per_kb = int((self.fee / float(self.vsize)) * 1000)
 
-    def add_input(self, prev_txid, output_n, keys=None, signatures=None, public_hash=b'', unlocking_script=b'',
-                  unlocking_script_unsigned=None, script_type=None, address='',
-                  sequence=0xffffffff, compressed=True, sigs_required=None, sort=False, index_n=None,
-                  value=None, double_spend=False, locktime_cltv=None, locktime_csv=None,
-                  key_path='', witness_type=None, witnesses=None, encoding=None, strict=True):
+    def add_input(
+        self,
+        prev_txid,
+        output_n,
+        utxo_script,
+        keys=None,
+        signatures=[],
+        public_hash=b"",
+        unlocking_script=b"",
+        unlocking_script_unsigned=None,
+        script_type=None,
+        address="",
+        sequence=0xFFFFFFFF,
+        compressed=True,
+        sigs_required=None,
+        sort=False,
+        index_n=None,
+        value=None,
+        double_spend=False,
+        locktime_cltv=None,
+        locktime_csv=None,
+        key_path="",
+        witness_type=None,
+        witnesses=None,
+        encoding=None,
+        strict=True,
+    ):
         """
         Add input to this transaction
 
@@ -2329,23 +2043,63 @@ class Transaction(object):
             index_n = len(self.inputs)
         sequence_int = sequence
         if isinstance(sequence, bytes):
-            sequence_int = int.from_bytes(sequence, 'little')
-        if self.version == b'\x00\x00\x00\x01' and 0 < sequence_int < SEQUENCE_LOCKTIME_DISABLE_FLAG:
-            self.version = b'\x00\x00\x00\x02'
+            sequence_int = int.from_bytes(sequence, "little")
+        if (
+            self.version == b"\x00\x00\x00\x01"
+            and 0 < sequence_int < SEQUENCE_LOCKTIME_DISABLE_FLAG
+        ):
+            self.version = b"\x00\x00\x00\x02"
             self.version_int = 2
         if witness_type is None:
             witness_type = self.witness_type
-        self.inputs.append(
-            Input(prev_txid=prev_txid, output_n=output_n, keys=keys, signatures=signatures, public_hash=public_hash,
-                  unlocking_script=unlocking_script, unlocking_script_unsigned=unlocking_script_unsigned,
-                  script_type=script_type, address=address, sequence=sequence, compressed=compressed,
-                  sigs_required=sigs_required, sort=sort, index_n=index_n, value=value, double_spend=double_spend,
-                  locktime_cltv=locktime_cltv, locktime_csv=locktime_csv, key_path=key_path, witness_type=witness_type,
-                  witnesses=witnesses, encoding=encoding, strict=strict, network=self.network.name))
+
+        input_new = Input(
+            prev_txid=prev_txid,
+            output_n=output_n,
+            keys=keys,
+            signatures=signatures,
+            public_hash=public_hash,
+            unlocking_script=unlocking_script,
+            unlocking_script_unsigned=unlocking_script_unsigned,
+            script_type=script_type,
+            address=address,
+            sequence=sequence,
+            compressed=compressed,
+            sigs_required=sigs_required,
+            sort=sort,
+            index_n=index_n,
+            value=value,
+            double_spend=double_spend,
+            locktime_cltv=locktime_cltv,
+            locktime_csv=locktime_csv,
+            key_path=key_path,
+            witness_type=witness_type,
+            witnesses=witnesses,
+            encoding=encoding,
+            strict=strict,
+            network=self.network.name,
+            utxo_script=utxo_script,
+        )
+        self.tx_new.vin.append(input_new.txin)
+        self.inputs.append(input_new)
+        print("new input")
+        print(self.tx_new.vin)
         return index_n
 
-    def add_output(self, value, address='', public_hash=b'', public_key=b'', lock_script=b'', spent=False,
-                   output_n=None, encoding=None, spending_txid=None, spending_index_n=None, strict=True):
+    def add_output(
+        self,
+        value,
+        address="",
+        public_hash=b"",
+        public_key=b"",
+        lock_script=b"",
+        spent=False,
+        output_n=None,
+        encoding=None,
+        spending_txid=None,
+        spending_index_n=None,
+        strict=True,
+    ):
         """
         Add an output to this transaction
 
@@ -2377,18 +2131,39 @@ class Transaction(object):
         :return int: Transaction output number (output_n)
         """
 
+        print("add output address", address)
         lock_script = to_bytes(lock_script)
+
         if output_n is None:
             output_n = len(self.outputs)
+
         if not float(value).is_integer():
-            raise TransactionError("Output must be of type integer and contain no decimals")
-        if lock_script.startswith(b'\x6a'):
+            raise TransactionError(
+                "Output must be of type integer and contain no decimals"
+            )
+
+        if lock_script.startswith(b"\x6a"):
             if value != 0:
                 raise TransactionError("Output value for OP_RETURN script must be 0")
-        self.outputs.append(Output(value=int(value), address=address, public_hash=public_hash,
-                                   public_key=public_key, lock_script=lock_script, spent=spent, output_n=output_n,
-                                   encoding=encoding, spending_txid=spending_txid, spending_index_n=spending_index_n,
-                                   strict=strict, network=self.network.name))
+
+        output_new = Output(
+            value=int(value),
+            address=address,
+            public_hash=public_hash,
+            public_key=public_key,
+            lock_script=lock_script,
+            spent=spent,
+            output_n=output_n,
+            encoding=encoding,
+            spending_txid=spending_txid,
+            spending_index_n=spending_index_n,
+            strict=strict,
+            network=self.network.name,
+        )
+        self.tx_new.vout.append(TxOut(int(value), output_new.script))
+        print("txnew")
+        print(binascii.hexlify(bytes(self.tx_new.vout[0])))
+        self.outputs.append(output_new)
         return output_n
 
     def merge_transaction(self, transaction):
@@ -2428,7 +2203,7 @@ class Transaction(object):
         #     add_change_output = False
         est_size = 10
         witness_size = 2
-        if self.witness_type != 'legacy':
+        if self.witness_type != "legacy":
             est_size += 2
         # TODO: if no inputs assume 1 input
         if not self.inputs:
@@ -2437,29 +2212,31 @@ class Transaction(object):
         for inp in self.inputs:
             est_size += 40
             scr_size = 0
-            if inp.witness_type != 'legacy':
+            if inp.witness_type != "legacy":
                 est_size += 1
             if inp.unlocking_script and len(inp.signatures) >= inp.sigs_required:
                 scr_size += len(varstr(inp.unlocking_script))
-                if inp.witness_type == 'p2sh-segwit':
+                if inp.witness_type == "p2sh-segwit":
                     scr_size += sum([1 + len(w) for w in inp.witnesses])
             else:
-                if inp.script_type == 'sig_pubkey':
+                if inp.script_type == "sig_pubkey":
                     scr_size += 107
                     if not inp.compressed:
                         scr_size += 33
-                    if inp.witness_type == 'p2sh-segwit':
+                    if inp.witness_type == "p2sh-segwit":
                         scr_size += 24
                 # elif inp.script_type in ['p2sh_multisig', 'p2sh_p2wpkh', 'p2sh_p2wsh']:
-                elif inp.script_type == 'p2sh_multisig':
+                elif inp.script_type == "p2sh_multisig":
                     scr_size += 9 + (len(inp.keys) * 34) + (inp.sigs_required * 72)
-                    if inp.witness_type == 'p2sh-segwit':
+                    if inp.witness_type == "p2sh-segwit":
                         scr_size += 17 * inp.sigs_required
-                elif inp.script_type == 'signature':
+                elif inp.script_type == "signature":
                     scr_size += 9 + 72
                 else:
-                    raise TransactionError("Unknown input script type %s cannot estimate transaction size" %
-                                           inp.script_type)
+                    raise TransactionError(
+                        "Unknown input script type %s cannot estimate transaction size"
+                        % inp.script_type
+                    )
             est_size += scr_size
             witness_size += scr_size
         for outp in self.outputs:
@@ -2467,23 +2244,31 @@ class Transaction(object):
             if outp.lock_script:
                 est_size += len(varstr(outp.lock_script))
             else:
-                raise TransactionError("Need locking script for output %d to estimate size" % outp.output_n)
+                raise TransactionError(
+                    "Need locking script for output %d to estimate size" % outp.output_n
+                )
         if number_of_change_outputs:
-            is_multisig = True if self.inputs and self.inputs[0].script_type == 'p2sh_multisig' else False
+            is_multisig = (
+                True
+                if self.inputs and self.inputs[0].script_type == "p2sh_multisig"
+                else False
+            )
             co_size = 8
-            if not self.inputs or self.inputs[0].witness_type == 'legacy':
+            if not self.inputs or self.inputs[0].witness_type == "legacy":
                 co_size += 24 if is_multisig else 26
-            elif self.inputs[0].witness_type == 'p2sh-segwit':
+            elif self.inputs[0].witness_type == "p2sh-segwit":
                 co_size += 24
             else:
                 co_size += 33 if is_multisig else 23
-            est_size += (number_of_change_outputs * co_size)
+            est_size += number_of_change_outputs * co_size
         self.size = est_size
         self.vsize = est_size
-        if self.witness_type == 'legacy':
+        if self.witness_type == "legacy":
             return est_size
         else:
-            self.vsize = math.ceil((((est_size - witness_size) * 3 + est_size) / 4) - 1.5)
+            self.vsize = math.ceil(
+                (((est_size - witness_size) * 3 + est_size) / 4) - 1.5
+            )
             return self.vsize
 
     def calc_weight_units(self):
@@ -2496,7 +2281,7 @@ class Transaction(object):
             return None
         witness_data_size = len(self.witness_data())
         wu = self.size * 4
-        if self.witness_type == 'segwit' and witness_data_size > 1:
+        if self.witness_type == "segwit" and witness_data_size > 1:
             wu = wu - 6  # for segwit marker and flag
             wu = wu - witness_data_size * 3
         self.vsize = math.ceil(wu / 4)
@@ -2515,7 +2300,9 @@ class Transaction(object):
         """
 
         if not self.fee_per_kb:
-            raise TransactionError("Cannot calculate transaction fees: transaction.fee_per_kb is not set")
+            raise TransactionError(
+                "Cannot calculate transaction fees: transaction.fee_per_kb is not set"
+            )
         if self.fee_per_kb < self.network.fee_min:
             self.fee_per_kb = self.network.fee_min
         elif self.fee_per_kb > self.network.fee_max:
@@ -2534,8 +2321,7 @@ class Transaction(object):
 
         self.input_total = sum([i.value for i in self.inputs if i.value])
         self.output_total = sum([o.value for o in self.outputs if o.value])
-        if self.coinbase:
-            self.input_total = self.output_total
+
         # self.fee = 0
         if self.input_total:
             self.fee = self.input_total - self.output_total
@@ -2552,12 +2338,12 @@ class Transaction(object):
         :return:
         """
         if not filename:
-            p = Path(BCL_DATA_DIR, '%s.tx' % self.txid)
+            p = Path(BCL_DATA_DIR, "%s.tx" % self.txid)
         else:
             p = Path(filename)
-            if not p.parent or str(p.parent) == '.':
+            if not p.parent or str(p.parent) == ".":
                 p = Path(BCL_DATA_DIR, filename)
-        f = p.open('wb')
+        f = p.open("wb")
         pickle.dump(self, f)
         f.close()
 

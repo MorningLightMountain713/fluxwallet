@@ -29,7 +29,7 @@ _logger = logging.getLogger(__name__)
 
 
 class ClientError(Exception):
-    def __init__(self, msg=''):
+    def __init__(self, msg=""):
         self.msg = msg
         _logger.info(msg)
 
@@ -38,9 +38,19 @@ class ClientError(Exception):
 
 
 class BaseClient(object):
-
-    def __init__(self, network, provider, base_url, denominator, api_key='', provider_coin_id='',
-                 network_overrides=None, timeout=TIMEOUT_REQUESTS, latest_block=None, strict=True):
+    def __init__(
+        self,
+        network,
+        provider,
+        base_url,
+        denominator,
+        api_key="",
+        provider_coin_id="",
+        network_overrides=None,
+        timeout=TIMEOUT_REQUESTS,
+        latest_block=None,
+        strict=True,
+    ):
         try:
             self.network = network
             if not isinstance(network, Network):
@@ -60,44 +70,67 @@ class BaseClient(object):
         except Exception:
             raise ClientError("This Network is not supported by %s Client" % provider)
 
-    def request(self, url_path, variables=None, method='get', secure=True, post_data=''):
-        url_vars = ''
+    def request(self, url_path, variables={}, method="get", secure=True, post_data=""):
+        url_vars = ""
         url = self.base_url + url_path
         if not url or not self.base_url:
             raise ClientError("No (complete) url provided: %s" % url)
         headers = {
-            'User-Agent': 'BitcoinLib/%s' % BITCOINLIB_VERSION,
-            'Accept': 'application/json',
+            "User-Agent": "BitcoinLib/%s" % BITCOINLIB_VERSION,
+            "Accept": "application/json",
             # 'Content-Type': 'application/json',
             "Referrer": "https://www.github.com/1200wd/bitcoinlib",
         }
+        print(url_path)
+        print(variables)
+        print(method)
+        print(secure)
+        print(post_data)
         # ToDo: Check use 'headers = None' for some providers?
-        if method == 'get':
-            if variables is None:
-                variables = {}
+        if method == "get":
             if variables:
-                url_vars = '?' + urlencode(variables)
+                url_vars = "?" + urlencode(variables)
             url += url_vars
-            log_url = url if '@' not in url else url.split('@')[1]
+            log_url = url if "@" not in url else url.split("@")[1]
             _logger.info("Url get request %s" % log_url)
-            self.resp = requests.get(url, timeout=self.timeout, verify=secure, headers=headers)
-        elif method == 'post':
-            log_url = url if '@' not in url else url.split('@')[1]
+            self.resp = requests.get(
+                url, timeout=self.timeout, verify=secure, headers=headers
+            )
+        elif method == "post":
+            print("method is post")
+            log_url = url if "@" not in url else url.split("@")[1]
             _logger.info("Url post request %s" % log_url)
-            self.resp = requests.post(url, json=dict(variables), data=post_data, timeout=self.timeout, verify=secure,
-                                      headers=headers)
 
+            try:
+                self.resp = requests.post(
+                    url,
+                    json=dict(variables),
+                    data=post_data,
+                    timeout=self.timeout,
+                    verify=secure,
+                    headers=headers,
+                )
+            except Exception as e:
+                print(repr(e))
+                exit(0)
+        print("response text", self.resp)
         resp_text = self.resp.text
         if len(resp_text) > 1000:
-            resp_text = self.resp.text[:970] + '... truncated, length %d' % len(resp_text)
+            resp_text = self.resp.text[:970] + "... truncated, length %d" % len(
+                resp_text
+            )
         _logger.debug("Response [%d] %s" % (self.resp.status_code, resp_text))
-        log_url = url if '@' not in url else url.split('@')[1]
+        log_url = url if "@" not in url else url.split("@")[1]
         if self.resp.status_code == 429:
-            raise ClientError("Maximum number of requests reached for %s with url %s, response [%d] %s" %
-                              (self.provider, log_url, self.resp.status_code, resp_text))
-        elif not(self.resp.status_code == 200 or self.resp.status_code == 201):
-            raise ClientError("Error connecting to %s on url %s, response [%d] %s" %
-                              (self.provider, log_url, self.resp.status_code, resp_text))
+            raise ClientError(
+                "Maximum number of requests reached for %s with url %s, response [%d] %s"
+                % (self.provider, log_url, self.resp.status_code, resp_text)
+            )
+        elif not (self.resp.status_code == 200 or self.resp.status_code == 201):
+            raise ClientError(
+                "Error connecting to %s on url %s, response [%d] %s"
+                % (self.provider, log_url, self.resp.status_code, resp_text)
+            )
         try:
             if not self.resp.apparent_encoding and not self.resp.encoding:
                 return self.resp.content
@@ -107,7 +140,11 @@ class BaseClient(object):
 
     def _address_convert(self, address):
         if not isinstance(address, Address):
-            return Address.parse(address, network_overrides=self.network_overrides, network=self.network.name)
+            return Address.parse(
+                address,
+                network_overrides=self.network_overrides,
+                network=self.network.name,
+            )
 
     def _addresslist_convert(self, addresslist):
         addresslistconv = []

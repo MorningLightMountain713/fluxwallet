@@ -39,3 +39,4 @@ import bitcoinlib.services.blocksmurfer
 import bitcoinlib.services.chainso
 import bitcoinlib.services.mempool
 import bitcoinlib.services.bitflyer
+import bitcoinlib.services.runonflux

@@ -52,7 +52,9 @@
     "api_key": "",
     "priority": 10,
     "denominator": 1,
-    "network_overrides": {"prefix_address_p2sh": "05"}
+    "network_overrides": {
+      "prefix_address_p2sh": "05"
+    }
   },
   "blockcypher.litecoin.legacy": {
     "provider": "blockcypher",
@@ -85,7 +87,9 @@
     "api_key": "api-key-needed",
     "priority": 10,
     "denominator": 100000000,
-    "network_overrides": {"prefix_address_p2sh": "32"}
+    "network_overrides": {
+      "prefix_address_p2sh": "32"
+    }
   },
   "cryptoid.dash": {
     "provider": "cryptoid",
@@ -252,6 +256,17 @@
     "denominator": 100000000,
     "network_overrides": null
   },
+  "flux": {
+    "provider": "runonflux",
+    "network": "flux",
+    "client_class": "FluxClient",
+    "provider_coin_id": "",
+    "url": "https://api.runonflux.io/",
+    "api_key": "",
+    "priority": 10,
+    "denominator": 100000000,
+    "network_overrides": null
+  },
   "blockstream.testnet": {
     "provider": "blockstream",
     "network": "testnet",
@@ -296,8 +311,7 @@
     "denominator": 100000000,
     "network_overrides": null
   },
-  "chainso.litecoin.legacy":
-    {
+  "chainso.litecoin.legacy": {
     "provider": "chainso",
     "network": "litecoin_legacy",
     "client_class": "ChainSo",
@@ -407,7 +421,7 @@
     "denominator": 1,
     "network_overrides": null
   },
-    "blocksmurfer": {
+  "blocksmurfer": {
     "provider": "blocksmurfer",
     "network": "bitcoin",
     "client_class": "BlocksmurferClient",

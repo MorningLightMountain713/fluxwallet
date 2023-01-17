@@ -30,29 +30,64 @@ _logger = logging.getLogger(__name__)
 
 SCRIPT_TYPES = {
     # <name>: (<type>, <script_commands>, <data-lengths>)
-    'p2pkh': ('locking', [op.op_dup, op.op_hash160, 'data', op.op_equalverify, op.op_checksig], [20]),
-    'p2pkh_drop': ('locking', ['data', op.op_drop, op.op_dup, op.op_hash160, 'data', op.op_equalverify, op.op_checksig],
-                   [32, 20]),
-    'p2sh': ('locking', [op.op_hash160, 'data', op.op_equal], [20]),
-    'p2wpkh': ('locking', [op.op_0, 'data'], [20]),
-    'p2wsh': ('locking', [op.op_0, 'data'], [32]),
-    'p2tr': ('locking', ['op_n', 'data'], [32]),
-    'multisig': ('locking', ['op_n', 'key', 'op_n', op.op_checkmultisig], []),
-    'p2pk': ('locking', ['key', op.op_checksig], []),
-    'nulldata': ('locking', [op.op_return, 'data'], [0]),
-    'nulldata_1': ('locking', [op.op_return, op.op_0], []),
-    'nulldata_2': ('locking', [op.op_return], []),
-    'sig_pubkey': ('unlocking', ['signature', 'key'], []),
+    "p2pkh": (
+        "locking",
+        [op.op_dup, op.op_hash160, "data", op.op_equalverify, op.op_checksig],
+        [20],
+    ),
+    "p2pkh_drop": (
+        "locking",
+        [
+            "data",
+            op.op_drop,
+            op.op_dup,
+            op.op_hash160,
+            "data",
+            op.op_equalverify,
+            op.op_checksig,
+        ],
+        [32, 20],
+    ),
+    "p2sh": ("locking", [op.op_hash160, "data", op.op_equal], [20]),
+    "p2wpkh": ("locking", [op.op_0, "data"], [20]),
+    "p2wsh": ("locking", [op.op_0, "data"], [32]),
+    "p2tr": ("locking", ["op_n", "data"], [32]),
+    "multisig": ("locking", ["op_n", "key", "op_n", op.op_checkmultisig], []),
+    "p2pk": ("locking", ["key", op.op_checksig], []),
+    "nulldata": ("locking", [op.op_return, "data"], [0]),
+    "nulldata_1": ("locking", [op.op_return, op.op_0], []),
+    "nulldata_2": ("locking", [op.op_return], []),
+    "sig_pubkey": ("unlocking", ["signature", "key"], []),
     # 'p2sh_multisig': ('unlocking', [op.op_0, 'signature', 'op_n', 'key', 'op_n', op.op_checkmultisig], []),
-    'p2sh_multisig': ('unlocking', [op.op_0, 'signature', 'redeemscript'], []),
-    'p2sh_multisig_2?': ('unlocking', [op.op_0, 'signature', op.op_verify, 'redeemscript'], []),
-    'p2sh_multisig_3?': ('unlocking', [op.op_0, 'signature', op.op_1add, 'redeemscript'], []),
-    'p2sh_p2wpkh': ('unlocking', [op.op_0, op.op_hash160, 'redeemscript', op.op_equal], []),
-    'p2sh_p2wsh': ('unlocking', [op.op_0, 'redeemscript'], []),
-    'signature': ('unlocking', ['signature'], []),
-    'signature_multisig': ('unlocking', [op.op_0, 'signature'], []),
-    'locktime_cltv': ('unlocking', ['locktime_cltv', op.op_checklocktimeverify, op.op_drop], []),
-    'locktime_csv': ('unlocking', ['locktime_csv', op.op_checksequenceverify, op.op_drop], []),
+    "p2sh_multisig": ("unlocking", [op.op_0, "signature", "redeemscript"], []),
+    "p2sh_multisig_2?": (
+        "unlocking",
+        [op.op_0, "signature", op.op_verify, "redeemscript"],
+        [],
+    ),
+    "p2sh_multisig_3?": (
+        "unlocking",
+        [op.op_0, "signature", op.op_1add, "redeemscript"],
+        [],
+    ),
+    "p2sh_p2wpkh": (
+        "unlocking",
+        [op.op_0, op.op_hash160, "redeemscript", op.op_equal],
+        [],
+    ),
+    "p2sh_p2wsh": ("unlocking", [op.op_0, "redeemscript"], []),
+    "signature": ("unlocking", ["signature"], []),
+    "signature_multisig": ("unlocking", [op.op_0, "signature"], []),
+    "locktime_cltv": (
+        "unlocking",
+        ["locktime_cltv", op.op_checklocktimeverify, op.op_drop],
+        [],
+    ),
+    "locktime_csv": (
+        "unlocking",
+        ["locktime_csv", op.op_checksequenceverify, op.op_drop],
+        [],
+    ),
 }
 
 
@@ -61,7 +96,8 @@ class ScriptError(Exception):
     Handle Key class Exceptions
 
     """
-    def __init__(self, msg=''):
+
+    def __init__(self, msg=""):
         self.msg = msg
         _logger.error(msg)
 
@@ -73,14 +109,14 @@ def _get_script_types(blueprint):
     # Convert blueprint to more generic format
     bp = []
     for item in blueprint:
-        if isinstance(item, str) and item[:4] == 'data':
-            bp.append('data')
+        if isinstance(item, str) and item[:4] == "data":
+            bp.append("data")
         elif isinstance(item, int) and op.op_1 <= item <= op.op_16:
-            bp.append('op_n')
-        elif item == 'key' and len(bp) and bp[-1] == 'key':
-            bp[-1] = 'key'
-        elif item == 'signature' and len(bp) and bp[-1] == 'signature':
-            bp[-1] = 'signature'
+            bp.append("op_n")
+        elif item == "key" and len(bp) and bp[-1] == "key":
+            bp[-1] = "key"
+        elif item == "signature" and len(bp) and bp[-1] == "signature":
+            bp[-1] = "signature"
         else:
             bp.append(item)
 
@@ -88,14 +124,21 @@ def _get_script_types(blueprint):
     if script_types:
         return script_types
 
-    bp_len = [int(c.split('-')[1]) for c in blueprint if isinstance(c, str) and c[:4] == 'data']
+    bp_len = [
+        int(c.split("-")[1])
+        for c in blueprint
+        if isinstance(c, str) and c[:4] == "data"
+    ]
     script_types = []
     while len(bp):
         # Find all possible matches with blueprint
-        matches = [(key, len(values[1]), values[2]) for key, values in SCRIPT_TYPES.items() if
-                   values[1] == bp[:len(values[1])]]
+        matches = [
+            (key, len(values[1]), values[2])
+            for key, values in SCRIPT_TYPES.items()
+            if values[1] == bp[: len(values[1])]
+        ]
         if not matches:
-            script_types.append('unknown')
+            script_types.append("unknown")
             break
 
         # Select match with correct data length if more than 1 match is found
@@ -110,11 +153,11 @@ def _get_script_types(blueprint):
 
         # Add script type to list
         script_type = matches[match_id][0]
-        if script_type == 'multisig' and script_types[-1:] == ['signature_multisig']:
+        if script_type == "multisig" and script_types[-1:] == ["signature_multisig"]:
             script_types.pop()
-            script_type = 'p2sh_multisig'
+            script_type = "p2sh_multisig"
         script_types.append(script_type)
-        bp = bp[matches[match_id][1]:]
+        bp = bp[matches[match_id][1] :]
 
     return script_types
 
@@ -129,11 +172,11 @@ def data_pack(data):
     :return bytes:
     """
     if len(data) <= 75:
-        return len(data).to_bytes(1, 'big') + data
+        return len(data).to_bytes(1, "big") + data
     elif 75 < len(data) <= 255:
-        return b'L' + len(data).to_bytes(1, 'little') + data
+        return b"L" + len(data).to_bytes(1, "little") + data
     else:
-        return b'M' + len(data).to_bytes(2, 'little') + data
+        return b"M" + len(data).to_bytes(2, "little") + data
 
 
 def get_data_type(data):
@@ -147,25 +190,37 @@ def get_data_type(data):
     :return str:
     """
     if isinstance(data, Key):
-        return 'key_object'
+        return "key_object"
     elif isinstance(data, Signature):
-        return 'signature_object'
-    elif data.startswith(b'\x30') and 69 <= len(data) <= 74:
-        return 'signature'
-    elif ((data.startswith(b'\x02') or data.startswith(b'\x03')) and len(data) == 33) or \
-            (data.startswith(b'\x04') and len(data) == 65):
-        return 'key'
+        return "signature_object"
+    elif data.startswith(b"\x30") and 69 <= len(data) <= 74:
+        return "signature"
+    elif (
+        (data.startswith(b"\x02") or data.startswith(b"\x03")) and len(data) == 33
+    ) or (data.startswith(b"\x04") and len(data) == 65):
+        return "key"
     elif len(data) == 20 or len(data) == 32 or 1 < len(data) <= 4:
-        return 'data-%d' % len(data)
+        return "data-%d" % len(data)
     else:
-        return 'other'
+        return "other"
 
 
 class Script(object):
-
-    def __init__(self, commands=None, message=None, script_types='', is_locking=True, keys=None, signatures=None,
-                 blueprint=None, tx_data=None, public_hash=b'', sigs_required=None, redeemscript=b'',
-                 hash_type=SIGHASH_ALL):
+    def __init__(
+        self,
+        commands=None,
+        message=None,
+        script_types="",
+        is_locking=True,
+        keys=None,
+        signatures=None,
+        blueprint=None,
+        tx_data=None,
+        public_hash=b"",
+        sigs_required=None,
+        redeemscript=b"",
+        hash_type=SIGHASH_ALL,
+    ):
         """
         Create a Script object with specified parameters. Use parse() method to create a Script from raw hex
 
@@ -207,7 +262,7 @@ class Script(object):
         :type hash_type: int
         """
         self.commands = commands if commands else []
-        self._raw = b''
+        self._raw = b""
         self.stack = []
         self.message = message
         self.script_types = script_types if script_types else []
@@ -216,48 +271,68 @@ class Script(object):
         self.signatures = signatures if signatures else []
         self._blueprint = blueprint if blueprint else []
         self.tx_data = {} if not tx_data else tx_data
-        self.sigs_required = sigs_required if sigs_required else len(self.keys) if len(self.keys) else 1
+        self.sigs_required = (
+            sigs_required if sigs_required else len(self.keys) if len(self.keys) else 1
+        )
         self.redeemscript = redeemscript
         self.public_hash = public_hash
         self.hash_type = hash_type
 
-        if not self.commands and self.script_types and (self.keys or self.signatures or self.public_hash):
+        if (
+            not self.commands
+            and self.script_types
+            and (self.keys or self.signatures or self.public_hash)
+        ):
+            print("doing stuff in script")
             for st in self.script_types:
                 st_values = SCRIPT_TYPES[st]
+                print("stvalues", st_values)
                 script_template = st_values[1]
-                self.is_locking = True if st_values[0] == 'locking' else False
+                print("script template", script_template)
+                self.is_locking = True if st_values[0] == "locking" else False
                 sig_n_and_m = [len(self.keys), self.sigs_required]
                 for tc in script_template:
                     command = [tc]
-                    if tc == 'data':
+                    if tc == "data":
                         command = [self.public_hash] if self.public_hash else []
-                    elif tc == 'signature':
+                    elif tc == "signature":
                         command = self.signatures
-                    elif tc == 'key':
+                    elif tc == "key":
                         command = self.keys
-                    elif tc == 'op_n':
+                    elif tc == "op_n":
                         command = [sig_n_and_m.pop() + 80]
-                    elif tc == 'redeemscript':
+                    elif tc == "redeemscript":
                         command = [self.redeemscript]
-                    if not command or command == [b'']:
-                        raise ScriptError("Cannot create script, please supply %s" % (tc if tc != 'data' else
-                                          'public key hash'))
+                    if not command or command == [b""]:
+                        raise ScriptError(
+                            "Cannot create script, please supply %s"
+                            % (tc if tc != "data" else "public key hash")
+                        )
                     self.commands += command
+                print("commands", self.commands)
         if not (self.keys and self.signatures and self.blueprint):
+
             self._blueprint = []
             for c in self.commands:
                 if isinstance(c, int):
                     self._blueprint.append(c)
                 else:
                     data_type = get_data_type(c)
-                    if data_type in ['key', 'signature', 'key_object', 'signature_object']:
-                        if data_type == 'key_object':
-                            data_type = 'key'
-                        elif data_type == 'signature_object':
-                            data_type = 'signature'
+                    if data_type in [
+                        "key",
+                        "signature",
+                        "key_object",
+                        "signature_object",
+                    ]:
+                        if data_type == "key_object":
+                            data_type = "key"
+                        elif data_type == "signature_object":
+                            data_type = "signature"
                         self._blueprint.append(data_type)
                     else:
-                        self._blueprint.append('data-%d' % len(c))
+                        print("c", c)
+                        self._blueprint.append("data-%d" % len(c))
+            print("blueprint", self._blueprint)
 
     @classmethod
     def parse(cls, script, message=None, tx_data=None, strict=True, _level=0):
@@ -310,7 +385,7 @@ class Script(object):
         signatures = []
         keys = []
         blueprint = []
-        redeemscript = b''
+        redeemscript = b""
         sigs_required = None
         # hash_type = SIGHASH_ALL  # todo: check
         hash_type = None
@@ -321,15 +396,15 @@ class Script(object):
             chb = script.read(1)
             if not chb:
                 break
-            ch = int.from_bytes(chb, 'big')
+            ch = int.from_bytes(chb, "big")
             data = None
             data_length = 0
             if 1 <= ch <= 75:  # Data`
                 data_length = ch
             elif ch == op.op_pushdata1:
-                data_length = int.from_bytes(script.read(1), 'little')
+                data_length = int.from_bytes(script.read(1), "little")
             elif ch == op.op_pushdata2:
-                data_length = int.from_bytes(script.read(2), 'little')
+                data_length = int.from_bytes(script.read(2), "little")
             if data_length:
                 data = script.read(data_length)
                 if len(data) != data_length:
@@ -342,39 +417,41 @@ class Script(object):
             if data:
                 data_type = get_data_type(data)
                 commands.append(data)
-                if data_type == 'signature':
+                if data_type == "signature":
                     try:
                         sig = Signature.parse_bytes(data)
                         signatures.append(sig)
                         hash_type = sig.hash_type
-                        blueprint.append('signature')
+                        blueprint.append("signature")
                     except Exception as e:
                         if strict:
                             raise ScriptError(str(e))
                         else:
                             _logger.warning(str(e))
-                elif data_type == 'signature_object':
+                elif data_type == "signature_object":
                     signatures.append(data)
                     hash_type = data.hash_type
-                    blueprint.append('signature')
-                elif data_type == 'key':
+                    blueprint.append("signature")
+                elif data_type == "key":
                     keys.append(Key(data))
-                    blueprint.append('key')
-                elif data_type == 'key_object':
+                    blueprint.append("key")
+                elif data_type == "key_object":
                     keys.append(data)
-                    blueprint.append('key')
-                elif data_type[:4] == 'data':
+                    blueprint.append("key")
+                elif data_type[:4] == "data":
                     # FIXME: This is arbitrary
-                    blueprint.append('data-%d' % len(data))
+                    blueprint.append("data-%d" % len(data))
                 elif len(commands) >= 2 and commands[-2] == op.op_return:
-                    blueprint.append('data-%d' % len(data))
+                    blueprint.append("data-%d" % len(data))
                 else:
                     # FIXME: Only parse sub-scripts if script is expected
                     try:
                         if _level >= 1:
-                            blueprint.append('data-%d' % len(data))
+                            blueprint.append("data-%d" % len(data))
                         else:
-                            s2 = Script.parse_bytes(data, _level=_level+1, strict=strict)
+                            s2 = Script.parse_bytes(
+                                data, _level=_level + 1, strict=strict
+                            )
                             commands.pop()
                             commands += s2.commands
                             blueprint += s2.blueprint
@@ -383,38 +460,49 @@ class Script(object):
                             redeemscript = s2.redeemscript
                             sigs_required = s2.sigs_required
                     except (ScriptError, IndexError):
-                        blueprint.append('data-%d' % len(data))
+                        blueprint.append("data-%d" % len(data))
             else:  # Other opcode
                 commands.append(ch)
                 blueprint.append(ch)
 
-        s = cls(commands, message, keys=keys, signatures=signatures, blueprint=blueprint, tx_data=tx_data,
-                hash_type=hash_type)
+        s = cls(
+            commands,
+            message,
+            keys=keys,
+            signatures=signatures,
+            blueprint=blueprint,
+            tx_data=tx_data,
+            hash_type=hash_type,
+        )
         script.seek(0)
         s._raw = script.read()
 
         s.script_types = _get_script_types(blueprint)
-        if 'unknown' in s.script_types:
-            s.script_types = ['unknown']
+        if "unknown" in s.script_types:
+            s.script_types = ["unknown"]
 
         # Extract extra information from script data
         for st in s.script_types[:1]:
-            if st == 'multisig':
+            if st == "multisig":
                 s.redeemscript = s.raw
                 s.sigs_required = s.commands[0] - 80
                 if s.sigs_required > len(keys):
-                    raise ScriptError("Number of signatures required (%d) is higher then number of keys (%d)" %
-                                      (s.sigs_required, len(keys)))
+                    raise ScriptError(
+                        "Number of signatures required (%d) is higher then number of keys (%d)"
+                        % (s.sigs_required, len(keys))
+                    )
                 if len(s.keys) != s.commands[-2] - 80:
-                    raise ScriptError("%d keys found but %d keys expected" %
-                                      (len(s.keys), s.commands[-2] - 80))
-            elif st in ['p2wpkh', 'p2wsh', 'p2sh', 'p2tr'] and len(s.commands) > 1:
+                    raise ScriptError(
+                        "%d keys found but %d keys expected"
+                        % (len(s.keys), s.commands[-2] - 80)
+                    )
+            elif st in ["p2wpkh", "p2wsh", "p2sh", "p2tr"] and len(s.commands) > 1:
                 s.public_hash = s.commands[1]
-            elif st == 'p2pkh' and len(s.commands) > 2:
+            elif st == "p2pkh" and len(s.commands) > 2:
                 s.public_hash = s.commands[2]
         s.redeemscript = redeemscript if redeemscript else s.redeemscript
-        if s.redeemscript and 'redeemscript' not in s.tx_data:
-            s.tx_data['redeemscript'] = s.redeemscript
+        if s.redeemscript and "redeemscript" not in s.tx_data:
+            s.tx_data["redeemscript"] = s.redeemscript
 
         s.sigs_required = sigs_required if sigs_required else s.sigs_required
 
@@ -443,7 +531,9 @@ class Script(object):
 
         :return Script:
         """
-        return cls.parse_bytesio(BytesIO(bytes.fromhex(script)), message, tx_data, strict, _level)
+        return cls.parse_bytesio(
+            BytesIO(bytes.fromhex(script)), message, tx_data, strict, _level
+        )
 
     @classmethod
     def parse_bytes(cls, script, message=None, tx_data=None, strict=True, _level=0):
@@ -471,19 +561,21 @@ class Script(object):
         s_items = []
         for command in self.blueprint:
             if isinstance(command, int):
-                s_items.append('op.' + opcodenames.get(command, 'unknown-op-%s' % command).lower())
+                s_items.append(
+                    "op." + opcodenames.get(command, "unknown-op-%s" % command).lower()
+                )
             else:
                 s_items.append(command)
-        return '<Script([' + ', '.join(s_items) + '])>'
+        return "<Script([" + ", ".join(s_items) + "])>"
 
     def __str__(self):
         s_items = []
         for command in self.blueprint:
             if isinstance(command, int):
-                s_items.append(opcodenames.get(command, 'unknown-op-%s' % command))
+                s_items.append(opcodenames.get(command, "unknown-op-%s" % command))
             else:
                 s_items.append(command)
-        return ' '.join(s_items)
+        return " ".join(s_items)
 
     def __add__(self, other):
         self.commands += other.commands
@@ -528,8 +620,9 @@ class Script(object):
 
         :return bytes:
         """
-        raw = b''
+        raw = b""
         for cmd in self.commands:
+            print("command", cmd)
             if isinstance(cmd, int):
                 raw += bytes([cmd])
             else:
@@ -592,8 +685,8 @@ class Script(object):
                     self.stack.append(encode_num(0))
                 elif command == op.op_1negate:  # OP_1NEGATE
                     self.stack.append(encode_num(-1))
-                elif op.op_1 <= command <= op.op_16:   # OP_1 to OP_16
-                    self.stack.append(encode_num(command-80))
+                elif op.op_1 <= command <= op.op_16:  # OP_1 to OP_16
+                    self.stack.append(encode_num(command - 80))
                 elif command == op.op_if or command == op.op_notif:
                     method = opcodenames[command].lower()
                     method = getattr(self.stack, method)
@@ -605,15 +698,24 @@ class Script(object):
                         raise ScriptError("Method %s not found" % method_name)
                     try:
                         method = getattr(self.stack, method_name)
-                        if method_name == 'op_checksig' or method_name == 'op_checksigverify':
+                        if (
+                            method_name == "op_checksig"
+                            or method_name == "op_checksigverify"
+                        ):
                             res = method(self.message)
-                        elif method_name == 'op_checkmultisig' or method_name == 'op_checkmultisigverify':
+                        elif (
+                            method_name == "op_checkmultisig"
+                            or method_name == "op_checkmultisigverify"
+                        ):
                             res = method(self.message, self.tx_data)
-                        elif method_name == 'op_checklocktimeverify':
+                        elif method_name == "op_checklocktimeverify":
                             res = self.stack.op_checklocktimeverify(
-                                self.tx_data['sequence'], self.tx_data.get('locktime'))
-                        elif method_name == 'op_checksequenceverify':
-                            res = self.stack.op_checksequenceverify(self.tx_data['sequence'], self.tx_data['version'])
+                                self.tx_data["sequence"], self.tx_data.get("locktime")
+                            )
+                        elif method_name == "op_checksequenceverify":
+                            res = self.stack.op_checksequenceverify(
+                                self.tx_data["sequence"], self.tx_data["version"]
+                            )
                         else:
                             res = method()
                         if res is False:
@@ -626,7 +728,7 @@ class Script(object):
 
         if len(self.stack) == 0:
             return False
-        if self.stack.pop() == b'':
+        if self.stack.pop() == b"":
             return False
 
         return True
@@ -685,7 +787,10 @@ class Stack(list):
         :return bool:
         """
         if len(self) < items:
-            raise IndexError("Not enough items in list to run operation. Items %d, expected %d" % (len(self), items))
+            raise IndexError(
+                "Not enough items in list to run operation. Items %d, expected %d"
+                % (len(self), items)
+            )
         for i in self[-items:]:
             if len(i) > 4:
                 return False
@@ -728,16 +833,16 @@ class Stack(list):
     def op_notif(self, commands):
         element = self.pop()
         if decode_num(element) == 0:
-            self.append(b'\1')
+            self.append(b"\1")
         else:
-            self.append(b'\0')
+            self.append(b"\0")
         return self.op_if(commands)
 
     def op_nop(self):
         return True
 
     def op_verify(self):
-        if self.pop() == b'':
+        if self.pop() == b"":
             return False
         return True
 
@@ -779,7 +884,7 @@ class Stack(list):
     def op_ifdup(self):
         if not len(self):
             raise ValueError("Stack op_ifdup method requires minimum of 1 stack item")
-        if self[-1] != b'':
+        if self[-1] != b"":
             self.append(self[-1])
         return True
 
@@ -832,7 +937,7 @@ class Stack(list):
         return True
 
     def op_equal(self):
-        self.append(b'\x01' if self.pop() == self.pop() else b'')
+        self.append(b"\x01" if self.pop() == self.pop() else b"")
         return True
 
     def op_equalverify(self):
@@ -869,13 +974,13 @@ class Stack(list):
     def op_not(self):
         if not self.is_arithmetic():
             return False
-        self.append(b'\1' if self.pop() == b'' else b'')
+        self.append(b"\1" if self.pop() == b"" else b"")
         return True
 
     def op_0notequal(self):
         if not self.is_arithmetic():
             return False
-        self.append(b'' if self.pop() == b'' else b'\1')
+        self.append(b"" if self.pop() == b"" else b"\1")
         return True
 
     def op_add(self):
@@ -895,10 +1000,10 @@ class Stack(list):
             return False
         a = self.pop()
         b = self.pop()
-        if a != b'' and b != b'':
-            self.append(b'\1')
+        if a != b"" and b != b"":
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_boolor(self):
@@ -906,19 +1011,19 @@ class Stack(list):
             return False
         a = self.pop()
         b = self.pop()
-        if a != b'' or b != b'':
-            self.append(b'\1')
+        if a != b"" or b != b"":
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_numequal(self):
         if not self.is_arithmetic(2):
             return False
         if self.pop() == self.pop():
-            self.append(b'\1')
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_numequalverify(self):
@@ -929,45 +1034,45 @@ class Stack(list):
         if not self.is_arithmetic(2):
             return False
         if self.pop() != self.pop():
-            self.append(b'\1')
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_numlessthan(self):
         if not self.is_arithmetic(2):
             return False
         if self.pop_as_number() < self.pop_as_number():
-            self.append(b'\1')
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_numgreaterthan(self):
         if not self.is_arithmetic(2):
             return False
         if self.pop_as_number() > self.pop_as_number():
-            self.append(b'\1')
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_numlessthanorequal(self):
         if not self.is_arithmetic(2):
             return False
         if self.pop_as_number() <= self.pop_as_number():
-            self.append(b'\1')
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_numgreaterthanorequal(self):
         if not self.is_arithmetic(2):
             return False
         if self.pop_as_number() >= self.pop_as_number():
-            self.append(b'\1')
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_min(self):
@@ -993,9 +1098,9 @@ class Stack(list):
         vmin = self.pop_as_number()
         vmax = self.pop_as_number()
         if vmin <= x < vmax:
-            self.append(b'\1')
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_ripemd160(self):
@@ -1025,9 +1130,9 @@ class Stack(list):
         signature = self.pop()
         signature = Signature.parse_bytes(signature, public_key=public_key)
         if signature.verify(message, public_key):
-            self.append(b'\1')
+            self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_checksigverify(self, message, _=None):
@@ -1054,12 +1159,12 @@ class Stack(list):
                     break
 
         if sigcount == len(signatures):
-            if data and 'redeemscript' in data:
-                self.append(data['redeemscript'])
+            if data and "redeemscript" in data:
+                self.append(data["redeemscript"])
             else:
-                self.append(b'\1')
+                self.append(b"\1")
         else:
-            self.append(b'')
+            self.append(b"")
         return True
 
     def op_checkmultisigverify(self, message, data=None):
@@ -1085,7 +1190,7 @@ class Stack(list):
         # TODO: Check, add to Script/Transaction and add unittests
         if not tx_locktime:
             return False
-        if sequence == 0xffffffff:
+        if sequence == 0xFFFFFFFF:
             return False
         locktime = decode_num(self[-1])
         if locktime < 0:
@@ -1166,18 +1271,18 @@ def encode_num(num):
     :return bytes:
     """
     if num == 0:
-        return b''
+        return b""
     abs_num = abs(num)
     negative = num < 0
     length = (num.bit_length() + 7) // 8
-    encoded = abs_num.to_bytes(length, byteorder='little')
+    encoded = abs_num.to_bytes(length, byteorder="little")
     if encoded[-1] & 0x80:
         if negative:
-            encoded += b'\x80'
+            encoded += b"\x80"
         else:
-            encoded += b'\0'
+            encoded += b"\0"
     elif negative:
-        encoded = encoded[:-1] + (encoded[-1] + 0x80).to_bytes(1, 'big')
+        encoded = encoded[:-1] + (encoded[-1] + 0x80).to_bytes(1, "big")
     return encoded
 
 
@@ -1195,13 +1300,13 @@ def decode_num(encoded):
 
     :return int:
     """
-    if encoded == b'':
+    if encoded == b"":
         return 0
     negative = False
     if encoded[-1] & 0x80:
         negative = True
-    element = encoded[:-1] + (encoded[-1] & 0x7f).to_bytes(1, 'big')
-    num = int.from_bytes(element, 'little')
+    element = encoded[:-1] + (encoded[-1] & 0x7F).to_bytes(1, "big")
+    num = int.from_bytes(element, "little")
     if negative:
         return -num
     else:

@@ -29,7 +29,8 @@ class NetworkError(Exception):
     """
     Network Exception class
     """
-    def __init__(self, msg=''):
+
+    def __init__(self, msg=""):
         self.msg = msg
         _logger.error(msg)
 
@@ -44,8 +45,8 @@ def _read_network_definitions():
     :return dict: Network definitions
     """
 
-    fn = Path(BCL_DATA_DIR, 'networks.json')
-    f = fn.open('rb')
+    fn = Path(BCL_DATA_DIR, "networks.json")
+    f = fn.open("rb")
 
     try:
         network_definitions = json.loads(f.read())
@@ -59,9 +60,9 @@ NETWORK_DEFINITIONS = _read_network_definitions()
 
 
 def _format_value(field, value):
-    if field[:6] == 'prefix':
+    if field[:6] == "prefix":
         return bytes.fromhex(value)
-    elif field == 'denominator':
+    elif field == "denominator":
         return float(value)
     else:
         return value
@@ -79,15 +80,19 @@ def network_values_for(field):
     :param field: Prefix name from networks definitions (networks.json)
     :type field: str
 
-    :return str: 
+    :return str:
     """
-    return list(dict.fromkeys([_format_value(field, nv[field]) for nv in NETWORK_DEFINITIONS.values()]))
+    return list(
+        dict.fromkeys(
+            [_format_value(field, nv[field]) for nv in NETWORK_DEFINITIONS.values()]
+        )
+    )
 
 
 def network_by_value(field, value):
     """
     Return all networks for field and (prefix) value.
-    
+
     Example, get available networks for WIF or address prefix
 
     >>> network_by_value('prefix_wif', 'B0')
@@ -99,41 +104,47 @@ def network_by_value(field, value):
 
     >>> network_by_value('prefix_address', '043587CF')
     []
-    
+
     :param field: Prefix name from networks definitions (networks.json)
     :type field: str
     :param value: Value of network prefix
     :type value: str
 
-    :return list: Of network name strings 
+    :return list: Of network name strings
     """
-    nws = [(nv, NETWORK_DEFINITIONS[nv]['priority'])
-           for nv in NETWORK_DEFINITIONS if NETWORK_DEFINITIONS[nv][field] == value]
+    nws = [
+        (nv, NETWORK_DEFINITIONS[nv]["priority"])
+        for nv in NETWORK_DEFINITIONS
+        if NETWORK_DEFINITIONS[nv][field] == value
+    ]
     if not nws:
         try:
             value = value.upper()
         except TypeError:
             pass
-        nws = [(nv, NETWORK_DEFINITIONS[nv]['priority'])
-               for nv in NETWORK_DEFINITIONS if NETWORK_DEFINITIONS[nv][field] == value]
+        nws = [
+            (nv, NETWORK_DEFINITIONS[nv]["priority"])
+            for nv in NETWORK_DEFINITIONS
+            if NETWORK_DEFINITIONS[nv][field] == value
+        ]
     return [nw[0] for nw in sorted(nws, key=lambda x: x[1], reverse=True)]
 
 
 def network_defined(network):
     """
     Is network defined?
-    
+
     Networks of this library are defined in networks.json in the operating systems user path.
 
     >>> network_defined('bitcoin')
     True
     >>> network_defined('ethereum')
     False
-    
+
     :param network: Network name
     :type network: str
-    
-    :return bool: 
+
+    :return bool:
     """
     if network not in list(NETWORK_DEFINITIONS.keys()):
         return False
@@ -183,24 +194,31 @@ def wif_prefix_search(wif, witness_type=None, multisig=None, network=None):
         if network is not None and nw != network:
             continue
         data = NETWORK_DEFINITIONS[nw]
-        for pf in data['prefixes_wif']:
-            if pf[0] == prefix and (multisig is None or pf[3] is None or pf[3] == multisig) and \
-                    (witness_type is None or pf[4] is None or pf[4] == witness_type):
-                matches.append({
-                    'prefix': prefix,
-                    'is_private': True if pf[2] == 'private' else False,
-                    'prefix_str': pf[1],
-                    'network': nw,
-                    'witness_type': pf[4],
-                    'multisig': pf[3],
-                    'script_type': pf[5]
-                })
+        for pf in data["prefixes_wif"]:
+            if (
+                pf[0] == prefix
+                and (multisig is None or pf[3] is None or pf[3] == multisig)
+                and (witness_type is None or pf[4] is None or pf[4] == witness_type)
+            ):
+                matches.append(
+                    {
+                        "prefix": prefix,
+                        "is_private": True if pf[2] == "private" else False,
+                        "prefix_str": pf[1],
+                        "network": nw,
+                        "witness_type": pf[4],
+                        "multisig": pf[3],
+                        "script_type": pf[5],
+                    }
+                )
     return matches
 
 
 # Replaced by Value class
 @deprecated
-def print_value(value, network=DEFAULT_NETWORK, rep='string', denominator=1, decimals=None):
+def print_value(
+    value, network=DEFAULT_NETWORK, rep="string", denominator=1, decimals=None
+):
     """
     Return the value as string with currency symbol
 
@@ -224,35 +242,51 @@ def print_value(value, network=DEFAULT_NETWORK, rep='string', denominator=1, dec
 
 class Network(object):
     """
-    Network class with all network definitions. 
-    
-    Prefixes for WIF, P2SH keys, HD public and private keys, addresses. A currency symbol and type, the 
+    Network class with all network definitions.
+
+    Prefixes for WIF, P2SH keys, HD public and private keys, addresses. A currency symbol and type, the
     denominator (such as satoshi) and a BIP0044 cointype.
-    
+
     """
 
     def __init__(self, network_name=DEFAULT_NETWORK):
         if network_name not in NETWORK_DEFINITIONS:
-            raise NetworkError("Network %s not found in network definitions" % network_name)
+            raise NetworkError(
+                "Network %s not found in network definitions" % network_name
+            )
         self.name = network_name
 
-        self.currency_name = NETWORK_DEFINITIONS[network_name]['currency_name']
-        self.currency_name_plural = NETWORK_DEFINITIONS[network_name]['currency_name_plural']
-        self.currency_code = NETWORK_DEFINITIONS[network_name]['currency_code']
-        self.currency_symbol = NETWORK_DEFINITIONS[network_name]['currency_symbol']
-        self.description = NETWORK_DEFINITIONS[network_name]['description']
-        self.prefix_address_p2sh = bytes.fromhex(NETWORK_DEFINITIONS[network_name]['prefix_address_p2sh'])
-        self.prefix_address = bytes.fromhex(NETWORK_DEFINITIONS[network_name]['prefix_address'])
-        self.prefix_bech32 = NETWORK_DEFINITIONS[network_name]['prefix_bech32']
-        self.prefix_wif = bytes.fromhex(NETWORK_DEFINITIONS[network_name]['prefix_wif'])
-        self.denominator = NETWORK_DEFINITIONS[network_name]['denominator']
-        self.bip44_cointype = NETWORK_DEFINITIONS[network_name]['bip44_cointype']
-        self.dust_amount = NETWORK_DEFINITIONS[network_name]['dust_amount']  # Dust amount in satoshi
-        self.fee_default = NETWORK_DEFINITIONS[network_name]['fee_default']  # Default fee in satoshi per kilobyte
-        self.fee_min = NETWORK_DEFINITIONS[network_name]['fee_min']  # Minimum transaction fee in satoshi per kilobyte
-        self.fee_max = NETWORK_DEFINITIONS[network_name]['fee_max']  # Maximum transaction fee in satoshi per kilobyte
-        self.priority = NETWORK_DEFINITIONS[network_name]['priority']
-        self.prefixes_wif = NETWORK_DEFINITIONS[network_name]['prefixes_wif']
+        self.currency_name = NETWORK_DEFINITIONS[network_name]["currency_name"]
+        self.currency_name_plural = NETWORK_DEFINITIONS[network_name][
+            "currency_name_plural"
+        ]
+        self.currency_code = NETWORK_DEFINITIONS[network_name]["currency_code"]
+        self.currency_symbol = NETWORK_DEFINITIONS[network_name]["currency_symbol"]
+        self.description = NETWORK_DEFINITIONS[network_name]["description"]
+        self.prefix_address_p2sh = bytes.fromhex(
+            NETWORK_DEFINITIONS[network_name]["prefix_address_p2sh"]
+        )
+        self.prefix_address = bytes.fromhex(
+            NETWORK_DEFINITIONS[network_name]["prefix_address"]
+        )
+        self.prefix_bech32 = NETWORK_DEFINITIONS[network_name]["prefix_bech32"]
+        self.prefix_wif = bytes.fromhex(NETWORK_DEFINITIONS[network_name]["prefix_wif"])
+        self.denominator = NETWORK_DEFINITIONS[network_name]["denominator"]
+        self.bip44_cointype = NETWORK_DEFINITIONS[network_name]["bip44_cointype"]
+        self.dust_amount = NETWORK_DEFINITIONS[network_name][
+            "dust_amount"
+        ]  # Dust amount in satoshi
+        self.fee_default = NETWORK_DEFINITIONS[network_name][
+            "fee_default"
+        ]  # Default fee in satoshi per kilobyte
+        self.fee_min = NETWORK_DEFINITIONS[network_name][
+            "fee_min"
+        ]  # Minimum transaction fee in satoshi per kilobyte
+        self.fee_max = NETWORK_DEFINITIONS[network_name][
+            "fee_max"
+        ]  # Maximum transaction fee in satoshi per kilobyte
+        self.priority = NETWORK_DEFINITIONS[network_name]["priority"]
+        self.prefixes_wif = NETWORK_DEFINITIONS[network_name]["prefixes_wif"]
 
         # This could be shorter and more flexible with the code below, but this gives 'Unresolved attributes' warnings
         # for f in list(NETWORK_DEFINITIONS[network_name].keys()):
@@ -271,7 +305,7 @@ class Network(object):
 
     # Replaced by Value class
     @deprecated
-    def print_value(self, value, rep='string', denominator=1, decimals=None):
+    def print_value(self, value, rep="string", denominator=1, decimals=None):
         """
         Return the value as string with currency symbol
 
@@ -289,28 +323,34 @@ class Network(object):
         :param decimals: Number of digits after the decimal point, leave empty for automatic determination based on value. Use integer value between 0 and 8
         :type decimals: int
 
-        :return str: 
+        :return str:
         """
         if denominator not in NETWORK_DENOMINATORS:
-            raise NetworkError("Denominator not found in definitions, use one of the following values: %s" %
-                               NETWORK_DENOMINATORS.keys())
+            raise NetworkError(
+                "Denominator not found in definitions, use one of the following values: %s"
+                % NETWORK_DENOMINATORS.keys()
+            )
         if value is None:
             return ""
         symb = rep
-        if rep == 'string':
+        if rep == "string":
             symb = NETWORK_DENOMINATORS[denominator] + self.currency_code
-        elif rep == 'symbol':
+        elif rep == "symbol":
             symb = NETWORK_DENOMINATORS[denominator] + self.currency_symbol
-        elif rep == 'none':
-            symb = ''
-        decimals = decimals if decimals is not None else -int(math.log10(self.denominator / denominator))
+        elif rep == "none":
+            symb = ""
+        decimals = (
+            decimals
+            if decimals is not None
+            else -int(math.log10(self.denominator / denominator))
+        )
         decimals = 0 if decimals < 0 else decimals
         decimals = 8 if decimals > 8 else decimals
         balance = round(float(value) * self.denominator / denominator, decimals)
         format_str = "%%.%df %%s" % decimals
         return (format_str % (balance, symb)).rstrip()
 
-    def wif_prefix(self, is_private=False, witness_type='legacy', multisig=False):
+    def wif_prefix(self, is_private=False, witness_type="legacy", multisig=False):
         """
         Get WIF prefix for this network and specifications in arguments
 
@@ -329,13 +369,17 @@ class Network(object):
         :return bytes:
         """
         script_type = script_type_default(witness_type, multisig, locking_script=True)
-        if script_type == 'p2sh' and witness_type in ['p2sh-segwit', 'segwit']:
-            script_type = 'p2sh_p2wsh' if multisig else 'p2sh_p2wpkh'
+        if script_type == "p2sh" and witness_type in ["p2sh-segwit", "segwit"]:
+            script_type = "p2sh_p2wsh" if multisig else "p2sh_p2wpkh"
         if is_private:
-            ip = 'private'
+            ip = "private"
         else:
-            ip = 'public'
-        found_prefixes = [bytes.fromhex(pf[0]) for pf in self.prefixes_wif if pf[2] == ip and script_type == pf[5]]
+            ip = "public"
+        found_prefixes = [
+            bytes.fromhex(pf[0])
+            for pf in self.prefixes_wif
+            if pf[2] == ip and script_type == pf[5]
+        ]
         if found_prefixes:
             return found_prefixes[0]
         else:
