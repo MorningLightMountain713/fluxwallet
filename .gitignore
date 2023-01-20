@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# Dev stuff
+dev/
+
 # Distribution / packaging
 .Python
 env/
@@ -68,7 +71,7 @@ target/
 *.sqlite
 .pypirc
 fluxwallet.iml
-venv/
+.venv/
 
 # Visual studio
 .vs
