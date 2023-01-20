@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-#    BitcoinLib - Python Cryptocurrency Library
+#    fluxwallet - Python Cryptocurrency Library
 #    © 2016 November - 1200 Web Development <http://1200wd.com/>
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,6 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from . import bitcoinlib
+from . import fluxwallet
 
-__all__ = ["bitcoinlib"]
+__all__ = ["fluxwallet"]

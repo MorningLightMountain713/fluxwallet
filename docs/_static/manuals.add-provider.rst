@@ -32,14 +32,14 @@ Example:
         }
     }
 
-* Create a new Service class in bitcoinlib.services. Create a method for available API calls and rewrite output
+* Create a new Service class in fluxwallet.services. Create a method for available API calls and rewrite output
   if needed.
 
 Example:
 
 .. code-block:: python
 
-    from bitcoinlib.services.baseclient import BaseClient
+    from fluxwallet.services.baseclient import BaseClient
 
     PROVIDERNAME = 'bitgo'
 
@@ -66,15 +66,15 @@ Example:
 
 .. code-block:: python
 
-    import bitcoinlib.services.bitgo
+    import fluxwallet.services.bitgo
 
-* Remove install.log file in bitcoinlib's log directory, this will copy all provider settings next time you run
+* Remove install.log file in fluxwallet's log directory, this will copy all provider settings next time you run
   the bitcoin library. See 'initialize_lib' method in main.py
 * Specify new provider and create service class object to test your new class and it's method
 
 .. code-block:: python
 
-    from bitcoinlib import services
+    from fluxwallet import services
 
     srv = Service(providers=['blockchair'])
     print(srv.estimatefee(5))

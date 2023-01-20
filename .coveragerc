@@ -1,7 +1,7 @@
 [run]
 relative_files = True
 omit =
-    *bitcoinlib/tools/*
+    *fluxwallet/tools/*
     *dashd.py
     *bitcoind.py
     *dogecoind.py

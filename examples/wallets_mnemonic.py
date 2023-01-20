@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-#    BitcoinLib - Python Cryptocurrency Library
+#    fluxwallet - Python Cryptocurrency Library
 #
 #    EXAMPLES - Mnemonic Wallets
 #
@@ -8,16 +8,17 @@
 #
 
 import os
-from bitcoinlib.wallets import Wallet, BCL_DATABASE_DIR
-from bitcoinlib.mnemonic import Mnemonic
+
+from fluxwallet.mnemonic import Mnemonic
+from fluxwallet.wallets import BCL_DATABASE_DIR, Wallet
 
 #
 # Create Wallets
 #
 
 # First recreate database to avoid already exist errors
-test_databasefile = os.path.join(BCL_DATABASE_DIR, 'bitcoinlib.test.sqlite')
-test_database = 'sqlite:///' + test_databasefile
+test_databasefile = os.path.join(BCL_DATABASE_DIR, "fluxwallet.test.sqlite")
+test_database = "sqlite:///" + test_databasefile
 if os.path.isfile(test_databasefile):
     os.remove(test_databasefile)
 
@@ -25,8 +26,13 @@ print("\n=== Create a simple Mnemonic wallet ===")
 passphrase = Mnemonic().generate()
 print("Your private key passphrase is:", passphrase)
 password = input("Enter password to protect passphrase: ")
-wlt = Wallet.create('mnwlttest1', keys=passphrase, password=password, network='bitcoinlib_test',
-                    db_uri=test_database)
+wlt = Wallet.create(
+    "mnwlttest1",
+    keys=passphrase,
+    password=password,
+    network="fluxwallet_test",
+    db_uri=test_database,
+)
 wlt.get_key()
 wlt.utxos_update()  # Create some test UTXOs
 wlt.info()

@@ -4,7 +4,7 @@
 # You can set these variables from the command line.
 SPHINXOPTS    = '-E'
 SPHINXBUILD   = sphinx-build
-SPHINXPROJ    = Bitcoinlib
+SPHINXPROJ    = fluxwallet
 SOURCEDIR     = .
 BUILDDIR      = _build
 

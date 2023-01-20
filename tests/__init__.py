@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-#    BitcoinLib - Python Cryptocurrency Library
+#    fluxwallet - Python Cryptocurrency Library
 #    © 2018 January - 1200 Web Development <http://1200wd.com/>
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -17,15 +17,15 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import tests.test_blocks
 import tests.test_custom
+import tests.test_db
 import tests.test_encoding
 import tests.test_keys
 import tests.test_mnemonic
-import tests.test_wallets
-import tests.test_transactions
+import tests.test_script
 import tests.test_services
 import tests.test_tools
-import tests.test_db
-import tests.test_blocks
+import tests.test_transactions
 import tests.test_values
-import tests.test_script
+import tests.test_wallets

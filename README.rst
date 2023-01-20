@@ -7,30 +7,30 @@ Includes a fully functional wallet with multi-signature, multi-currency and mult
 You this library at a high level and create and manage wallets for the command line or at a low level
 and create your own custom made transactions, keys or wallets.
 
-The BitcoinLib connects to various service providers automatically to update wallets, transactions and
+The fluxwallet connects to various service providers automatically to update wallets, transactions and
 blockchain information. It does currently not parse the blockchain itself.
 
-.. image:: https://github.com/1200wd/bitcoinlib/actions/workflows/unittests.yaml/badge.svg
-    :target: https://github.com/1200wd/bitcoinlib/actions/workflows/unittests.yaml
+.. image:: https://github.com/1200wd/fluxwallet/actions/workflows/unittests.yaml/badge.svg
+    :target: https://github.com/1200wd/fluxwallet/actions/workflows/unittests.yaml
     :alt: Unittests
-.. image:: https://img.shields.io/pypi/v/bitcoinlib.svg
-    :target: https://pypi.org/pypi/bitcoinlib/
+.. image:: https://img.shields.io/pypi/v/fluxwallet.svg
+    :target: https://pypi.org/pypi/fluxwallet/
     :alt: PyPi
-.. image:: https://readthedocs.org/projects/bitcoinlib/badge/?version=latest
-    :target: http://bitcoinlib.readthedocs.io/en/latest/?badge=latest
+.. image:: https://readthedocs.org/projects/fluxwallet/badge/?version=latest
+    :target: http://fluxwallet.readthedocs.io/en/latest/?badge=latest
     :alt: RTD
-.. image:: https://coveralls.io/repos/github/1200wd/bitcoinlib/badge.svg?branch=installation-documentation-update
-    :target: https://coveralls.io/github/1200wd/bitcoinlib?branch=master
+.. image:: https://coveralls.io/repos/github/1200wd/fluxwallet/badge.svg?branch=installation-documentation-update
+    :target: https://coveralls.io/github/1200wd/fluxwallet?branch=master
     :alt: Coveralls
-.. image:: https://snyk.io/test/github/1200wd/bitcoinlib/badge.svg
-    :target: https://snyk.io/test/github/1200wd/bitcoinlib
+.. image:: https://snyk.io/test/github/1200wd/fluxwallet/badge.svg
+    :target: https://snyk.io/test/github/1200wd/fluxwallet
     :alt: Known Vulnerabilities
     
 
 Documentation
 -------------
 
-Read the full documentation at: http://bitcoinlib.readthedocs.io/
+Read the full documentation at: http://fluxwallet.readthedocs.io/
 
 
 Disclaimer
@@ -53,7 +53,7 @@ Example: Create wallet and generate new address (key) to receive bitcoins
 
 .. code-block:: pycon
 
-   >>> from bitcoinlib.wallets import Wallet
+   >>> from fluxwallet.wallets import Wallet
    >>> w = Wallet.create('Wallet1')
    >>> key1 = w.get_key()
    >>> key1.address
@@ -84,8 +84,8 @@ The complete wallet can be recovered from the passphrase, which is the masterkey
 
 .. code-block:: python
 
-    from bitcoinlib.wallets import Wallet, wallet_delete
-    from bitcoinlib.mnemonic import Mnemonic
+    from fluxwallet.wallets import Wallet, wallet_delete
+    from fluxwallet.mnemonic import Mnemonic
 
     passphrase = Mnemonic().generate()
     print(passphrase)
@@ -105,8 +105,8 @@ Create a Multisig wallet with 2 cosigners which both need to sign a transaction.
 
 .. code-block:: python
 
-    from bitcoinlib.wallets import Wallet
-    from bitcoinlib.keys import HDKey
+    from fluxwallet.wallets import Wallet
+    from fluxwallet.keys import HDKey
 
     NETWORK = 'testnet'
     k1 = HDKey('tprv8ZgxMBicQKsPd1Q44tfDiZC98iYouKRC2CzjT3HGt1yYw2zuX2awTotzGAZQEAU9bi2M5MCj8iedP9MREPjUgpDEBwBgGi2C8eK'
@@ -149,7 +149,7 @@ Create a native single key P2WPKH wallet:
 
 .. code-block:: pycon
 
-    >>> from bitcoinlib.wallets import Wallet
+    >>> from fluxwallet.wallets import Wallet
     >>> w = Wallet.create('wallet_segwit_p2wpkh', witness_type='segwit')
     >>> w.get_key().address
     bc1q84y2quplejutvu0h4gw9hy59fppu3thg0u2xz3
@@ -158,7 +158,7 @@ Or create a P2SH nested single key P2SH_P2WPKH wallet:
 
 .. code-block:: pycon
 
-    >>> from bitcoinlib.wallets import Wallet
+    >>> from fluxwallet.wallets import Wallet
     >>> w = Wallet.create('wallet_segwit_p2sh_p2wpkh', witness_type='p2sh-segwit')
     >>> w.get_key().address
     36ESSWgR4WxXJSc4ysDSJvecyY6FJkhUbp
@@ -174,7 +174,7 @@ To create a new Bitcoin wallet
 .. code-block:: bash
 
     $ clw newwallet
-    Command Line Wallet for BitcoinLib
+    Command Line Wallet for fluxwallet
 
     Wallet newwallet does not exist, create new wallet [yN]? y
 
@@ -190,7 +190,7 @@ and managing transactions.
 
 For the full command line wallet documentation please read
 
-http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.command-line-wallet.html
+http://fluxwallet.readthedocs.io/en/latest/_static/manuals.command-line-wallet.html
 
 
 Mnemonic key generation
@@ -204,8 +204,8 @@ Example: Generate a list of words passphrase and derive a private key seed
 
 .. code-block:: pycon
 
-   >>> from bitcoinlib.mnemonic import Mnemonic
-   >>> from bitcoinlib.encoding import to_hexstring
+   >>> from fluxwallet.mnemonic import Mnemonic
+   >>> from fluxwallet.encoding import to_hexstring
    >>> words = Mnemonic().generate()
    >>> words
    unique aisle iron extend earn cigar trust source next depart yard bind
@@ -226,7 +226,7 @@ Example: Get estimated transaction fee in Sathosis per Kb for confirmation withi
 
 .. code-block:: pycon
 
-   >>> from bitcoinlib.services.services import Service
+   >>> from fluxwallet.services.services import Service
    >>> Service().estimatefee(5)
    138964
 
@@ -234,14 +234,14 @@ Example: Get estimated transaction fee in Sathosis per Kb for confirmation withi
 Other Databases
 ---------------
 
-Bitcoinlib uses the SQLite database by default, but other databases are supported as well.
-See http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.databases.html for instructions on how to use
+fluxwallet uses the SQLite database by default, but other databases are supported as well.
+See http://fluxwallet.readthedocs.io/en/latest/_static/manuals.databases.html for instructions on how to use
 MySQL or PostgreSQL.
 
 
 More examples
 -------------
-For more examples see https://github.com/1200wd/bitcoinlib/tree/master/examples
+For more examples see https://github.com/1200wd/fluxwallet/tree/master/examples
 
 
 Implements the following Bitcoin Improvement Proposals
@@ -279,7 +279,7 @@ Pre-requirements Windows
 ------------------------
 
 This library requires a Microsoft Visual C++ Compiler. See
-http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.install.html
+http://fluxwallet.readthedocs.io/en/latest/_static/manuals.install.html
 
 The fastecdsa library is not enabled at this moment on windows, the slower ecdsa library is installed.
 
@@ -287,7 +287,7 @@ The fastecdsa library is not enabled at this moment on windows, the slower ecdsa
 Install with pip
 ----------------
 
-``pip install bitcoinlib``
+``pip install fluxwallet``
 
 These packages will be installed
 * fastecdsa (or ecdsa on Windows)
@@ -311,15 +311,15 @@ Create a virtual environment for instance on linux with virtualenv:
 
 .. code-block:: bash
 
-    $ virtualenv -p python3 venv/bitcoinlib
-    $ source venv/bitcoinlib/bin/activate
+    $ virtualenv -p python3 venv/fluxwallet
+    $ source venv/fluxwallet/bin/activate
 
 Then clone the repository and install dependencies:
 
 .. code-block:: bash
 
-    $ git clone https://github.com/1200wd/bitcoinlib.git
-    $ cd bitcoinlib
+    $ git clone https://github.com/1200wd/fluxwallet.git
+    $ cd fluxwallet
     $ pip install -r requirements-dev.txt
 
 
@@ -340,7 +340,7 @@ above.
 You can also use pyscrypt or pycryptodome instead of scrypt. Pyscrypt is a pure Python scrypt password-based key
 derivation library. It works but it is slow when using BIP38 password protected keys.
 
-If you run into issues, do not hesitate to contact us or file an issue at https://github.com/1200wd/bitcoinlib/issues
+If you run into issues, do not hesitate to contact us or file an issue at https://github.com/1200wd/fluxwallet/issues
 
 
 Update library
@@ -350,7 +350,7 @@ Update to the latest version of the library with
 
 .. code-block:: bash
 
-    $ pip install bitcoinlib --upgrade
+    $ pip install fluxwallet --upgrade
 
 To upgrade make sure everything is backuped and run updatedb.py from the installation directory.
 
@@ -360,7 +360,7 @@ To upgrade make sure everything is backuped and run updatedb.py from the install
 
 
 For more information on installing, updating and maintenance see
-https://bitcoinlib.readthedocs.io/en/latest/_static/manuals.install.html#installation
+https://fluxwallet.readthedocs.io/en/latest/_static/manuals.install.html#installation
 
 
 Future / Roadmap

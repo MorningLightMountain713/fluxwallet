@@ -1,9 +1,9 @@
-.. Bitcoinlib documentation master file, created by
+.. fluxwallet documentation master file, created by
    sphinx-quickstart on Sat Apr  8 10:06:16 2017.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to Bitcoinlib's documentation!
+Welcome to fluxwallet's documentation!
 ======================================
 
 Bitcoin and other Crypto Currency Library for Python.
@@ -15,7 +15,7 @@ simple and straightforward Python code.
 You can use this library at a high level and create and manage wallets on the command line or at a low level
 and create your own custom made transactions, scripts, keys or wallets.
 
-The BitcoinLib connects to various service providers automatically to update wallets, transactions and
+The fluxwallet connects to various service providers automatically to update wallets, transactions and
 blockchain information.
 
 
@@ -29,7 +29,7 @@ Example: Create wallet and generate new address (key) to receive bitcoins
 
 .. code-block:: pycon
 
-   >>> from bitcoinlib.wallets import Wallet
+   >>> from fluxwallet.wallets import Wallet
    >>> w = Wallet.create('Wallet1')
    >>> key1 = w.get_key()
    >>> key1.address
@@ -63,7 +63,7 @@ Create a native single key P2WPKH wallet:
 
 .. code-block:: pycon
 
-    >>> from bitcoinlib.wallets import Wallet
+    >>> from fluxwallet.wallets import Wallet
     >>> w = Wallet.create('segwit_p2wpkh', witness_type='segwit')
     >>> w.get_key().address
     bc1q84y2quplejutvu0h4gw9hy59fppu3thg0u2xz3
@@ -72,7 +72,7 @@ Or create a P2SH nested single key P2SH_P2WPKH wallet:
 
 .. code-block:: pycon
 
-    >>> from bitcoinlib.wallets import Wallet
+    >>> from fluxwallet.wallets import Wallet
     >>> w = Wallet.create('segwit_p2sh_p2wpkh', witness_type='p2sh-segwit')
     >>> w.get_key().address
     36ESSWgR4WxXJSc4ysDSJvecyY6FJkhUbp
@@ -86,8 +86,8 @@ The complete wallet can be recovered from the passphrase which is the masterkey.
 
 .. code-block:: python
 
-    from bitcoinlib.wallets import Wallet, wallet_delete
-    from bitcoinlib.mnemonic import Mnemonic
+    from fluxwallet.wallets import Wallet, wallet_delete
+    from fluxwallet.mnemonic import Mnemonic
 
     passphrase = Mnemonic().generate()
     print(passphrase)
@@ -107,8 +107,8 @@ Create a Multisig wallet with 2 cosigners which both need to sign a transaction.
 
 .. code-block:: python
 
-    from bitcoinlib.wallets import Wallet
-    from bitcoinlib.keys import HDKey
+    from fluxwallet.wallets import Wallet
+    from fluxwallet.keys import HDKey
 
     NETWORK = 'testnet'
     k1 = HDKey('tprv8ZgxMBicQKsPd1Q44tfDiZC98iYouKRC2CzjT3HGt1yYw2zuX2awTotzGAZQEAU9bi2M5MCj8iedP9MREPjUgpDEBwBgGi2C8eK'
@@ -150,7 +150,7 @@ To create a new Bitcoin wallet
 .. code-block:: bash
 
     $ clw newwallet
-    Command Line Wallet for BitcoinLib
+    Command Line Wallet for fluxwallet
 
     Wallet newwallet does not exist, create new wallet [yN]? y
 
@@ -165,7 +165,7 @@ manage public and private keys and managing transactions.
 
 For the full command line wallet documentation please read
 
-http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.command-line-wallet.html
+http://fluxwallet.readthedocs.io/en/latest/_static/manuals.command-line-wallet.html
 
 
 Service providers
@@ -179,7 +179,7 @@ Example: Get estimated transactionfee in Sathosis per Kb for confirmation within
 
 .. code-block:: pycon
 
-   >>> from bitcoinlib.services.services import Service
+   >>> from fluxwallet.services.services import Service
    >>> Service().estimatefee(5)
    138964
 
@@ -187,14 +187,14 @@ Example: Get estimated transactionfee in Sathosis per Kb for confirmation within
 Other Databases
 ---------------
 
-Bitcoinlib uses the SQLite database by default but other databases are supported as well.
-See http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.databases.html for instructions on how to use
+fluxwallet uses the SQLite database by default but other databases are supported as well.
+See http://fluxwallet.readthedocs.io/en/latest/_static/manuals.databases.html for instructions on how to use
 MySQL or PostgreSQL.
 
 
 More examples
 -------------
-For more examples see https://github.com/1200wd/bitcoinlib/tree/master/examples
+For more examples see https://github.com/1200wd/fluxwallet/tree/master/examples
 
 
 .. toctree::
@@ -215,19 +215,19 @@ For more examples see https://github.com/1200wd/bitcoinlib/tree/master/examples
    :caption: Classes
    :maxdepth: 1
 
-   Key <source/bitcoinlib.keys>
-   Transaction <source/bitcoinlib.transactions>
-   Script <source/bitcoinlib.scripts>
-   Wallet <source/bitcoinlib.wallets>
-   Mnemonic <source/bitcoinlib.mnemonic>
-   Network <source/bitcoinlib.networks>
-   Block <source/bitcoinlib.blocks>
-   Value <source/bitcoinlib.values>
-   Service <source/bitcoinlib.services.services>
-   Service providers <source/bitcoinlib.services>
-   Config <source/bitcoinlib.config>
-   Database <source/bitcoinlib.db>
-   Cache <source/bitcoinlib.db_cache>
+   Key <source/fluxwallet.keys>
+   Transaction <source/fluxwallet.transactions>
+   Script <source/fluxwallet.scripts>
+   Wallet <source/fluxwallet.wallets>
+   Mnemonic <source/fluxwallet.mnemonic>
+   Network <source/fluxwallet.networks>
+   Block <source/fluxwallet.blocks>
+   Value <source/fluxwallet.values>
+   Service <source/fluxwallet.services.services>
+   Service providers <source/fluxwallet.services>
+   Config <source/fluxwallet.config>
+   Database <source/fluxwallet.db>
+   Cache <source/fluxwallet.db_cache>
 
 .. toctree::
    :caption: Reference
@@ -235,8 +235,8 @@ For more examples see https://github.com/1200wd/bitcoinlib/tree/master/examples
 
    source/_static/classes-overview
    Modules <source/modules>
-   Encoding <source/bitcoinlib.encoding>
-   Tools <source/bitcoinlib.tools>
+   Encoding <source/fluxwallet.encoding>
+   Tools <source/fluxwallet.tools>
    source/_static/script-types-overview
 
 

@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
 #
-#    BitcoinLib - Python Cryptocurrency Library
+#    fluxwallet - Python Cryptocurrency Library
 #    Benchmark - test library speed
 #    © 2020 October - 1200 Web Development <http://1200wd.com/>
 #
 
 
-import time
 import random
-from bitcoinlib.keys import *
-from bitcoinlib.wallets import *
-from bitcoinlib.transactions import *
-from bitcoinlib.mnemonic import *
+import time
+
+from fluxwallet.keys import *
+from fluxwallet.mnemonic import *
+from fluxwallet.transactions import *
+from fluxwallet.wallets import *
 
 try:
     wallet_method = Wallet
@@ -19,32 +20,31 @@ except NameError:
     wallet_method = HDWallet
 
 try:
-    BITCOINLIB_VERSION
+    fluxwallet_VERSION
 except:
-    BITCOINLIB_VERSION = '<0.4.10'
+    fluxwallet_VERSION = "<0.4.10"
 
 
 class Benchmark:
-
     def __init__(self):
-        wallet_delete_if_exists('wallet_multisig_huge', force=True)
+        wallet_delete_if_exists("wallet_multisig_huge", force=True)
 
     @staticmethod
     def benchmark_bip38():
         # Encrypt and decrypt BIP38 key
         k = Key()
-        bip38_key = k.encrypt(password='satoshi')
-        k2 = Key(bip38_key, password='satoshi')
-        assert(k.wif() == k2.wif())
+        bip38_key = k.encrypt(password="satoshi")
+        k2 = Key(bip38_key, password="satoshi")
+        assert k.wif() == k2.wif()
 
     @staticmethod
     def benchmark_encoding():
         # Convert very large numbers to and from base58 / bech32
-        pk = random.randint(0, 10 ** 10240)
+        pk = random.randint(0, 10**10240)
         large_b58 = change_base(pk, 10, 58, 6000)
         large_b32 = change_base(pk, 10, 32, 7000)
-        assert(change_base(large_b58, 58, 10) == pk)
-        assert(change_base(large_b32, 32, 10) == pk)
+        assert change_base(large_b58, 58, 10) == pk
+        assert change_base(large_b32, 32, 10) == pk
 
     @staticmethod
     def benchmark_mnemonic():
@@ -61,19 +61,26 @@ class Benchmark:
             t = Transaction.import_raw(raw_hex)
             t.inputs[0].value = 485636658
             t.verify()
-            assert(t.verified is True)
+            assert t.verified is True
 
     @staticmethod
     def benchmark_wallets_multisig():
         # Create large multisig wallet
-        network = 'bitcoinlib_test'
+        network = "fluxwallet_test"
         n_keys = 8
         sigs_req = 5
         key_list = [HDKey(network=network) for _ in range(0, n_keys)]
         pk_n = random.randint(0, n_keys - 1)
-        key_list_cosigners = [k.public_master(multisig=True) for k in key_list if k is not key_list[pk_n]]
+        key_list_cosigners = [
+            k.public_master(multisig=True) for k in key_list if k is not key_list[pk_n]
+        ]
         key_list_wallet = [key_list[pk_n]] + key_list_cosigners
-        w = wallet_method.create('wallet_multisig_huge', keys=key_list_wallet, sigs_required=sigs_req, network=network)
+        w = wallet_method.create(
+            "wallet_multisig_huge",
+            keys=key_list_wallet,
+            sigs_required=sigs_req,
+            network=network,
+        )
         w.get_keys(number_of_keys=2)
         w.utxos_update()
         to_address = HDKey(network=network).address()
@@ -83,13 +90,21 @@ class Benchmark:
             co_id = random.choice(key_pool)
             t.sign(key_list[co_id])
             key_pool.remove(co_id)
-        assert(t.verify() is True)
+        assert t.verify() is True
 
     def run(self):
         start_time = time.time()
-        print("Running BitcoinLib benchmarks speed test for version %s" % BITCOINLIB_VERSION)
+        print(
+            "Running fluxwallet benchmarks speed test for version %s"
+            % fluxwallet_VERSION
+        )
 
-        benchmark_methods = [m for m in dir(self) if callable(getattr(self, m)) if m.startswith('benchmark_')]
+        benchmark_methods = [
+            m
+            for m in dir(self)
+            if callable(getattr(self, m))
+            if m.startswith("benchmark_")
+        ]
         for method in benchmark_methods:
             m_start_time = time.time()
             getattr(self, method)()
@@ -100,5 +115,5 @@ class Benchmark:
         print("Total running time: %.5f seconds" % duration)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     Benchmark().run()

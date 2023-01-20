@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-#    BitcoinLib - Python Cryptocurrency Library
+#    fluxwallet - Python Cryptocurrency Library
 #
 #    EXAMPLES - Block examples
 #
@@ -8,17 +8,23 @@
 #
 
 from pprint import pprint
-from bitcoinlib.blocks import *
-from bitcoinlib.services.services import *
 
+from fluxwallet.blocks import *
+from fluxwallet.services.services import *
 
 print("=== Create Block object (block 120000) ===")
 # def __init__(self, block_hash, version, prev_block, merkle_root, time, bits, nonce, transactions=None,
 #              height=None, confirmations=None, network=DEFAULT_NETWORK):
-b = Block(block_hash='0000000000000e07595fca57b37fea8522e95e0f6891779cfd34d7e537524471', version=1,
-          prev_block='000000000000337828025b947973252acf8d668b3bb459c1c6e70b2e5827bca4',
-          merkle_root='6dbba50b72ad0569c2449090a371516e3865840e905483cac0f54d96944eee28',
-          time=1303687201, bits=453031340, nonce=4273989260, height=120000)
+b = Block(
+    block_hash="0000000000000e07595fca57b37fea8522e95e0f6891779cfd34d7e537524471",
+    version=1,
+    prev_block="000000000000337828025b947973252acf8d668b3bb459c1c6e70b2e5827bca4",
+    merkle_root="6dbba50b72ad0569c2449090a371516e3865840e905483cac0f54d96944eee28",
+    time=1303687201,
+    bits=453031340,
+    nonce=4273989260,
+    height=120000,
+)
 pprint(b.as_dict())
 
 
@@ -35,6 +41,6 @@ pprint(b.as_dict())
 
 
 print("=== Get Litecoin block with height 1000000 from service providers ===")
-srv = Service(network='litecoin')
+srv = Service(network="litecoin")
 b = srv.getblock(1000000)
 pprint(b.as_dict())

@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 #
-#    BitcoinLib - Python Cryptocurrency Library
+#    fluxwallet - Python Cryptocurrency Library
 #
 #    EXAMPLES - Bitcoind regtest network example
 #
 #    © 2022 Februari - 1200 Web Development <http://1200wd.com/>
 #
 
-from bitcoinlib.services.bitcoind import *
 from pprint import pprint
 
-bdc = BitcoindClient(base_url='http://rpcuser:pwd@localhost:18444')
+from fluxwallet.services.bitcoind import *
+
+bdc = BitcoindClient(base_url="http://rpcuser:pwd@localhost:18444")
 
 print("Current blockheight is %d" % bdc.proxy.getblockcount())
 address = bdc.proxy.getnewaddress()

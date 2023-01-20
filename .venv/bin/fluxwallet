@@ -1,0 +1,6 @@
+#!/Users/davew/code/fluxwallet/.venv/bin/python
+import sys
+from fluxwallet.tools.clw import main
+
+if __name__ == '__main__':
+    sys.exit(main())

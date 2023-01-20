@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-#    BitcoinLib - Python Cryptocurrency Library
+#    fluxwallet - Python Cryptocurrency Library
 #
 #    EXAMPLES - Wallets and Transactions
 #
@@ -9,21 +9,21 @@
 
 import os
 from pprint import pprint
-from bitcoinlib.wallets import Wallet, BCL_DATABASE_DIR
 
+from fluxwallet.wallets import BCL_DATABASE_DIR, Wallet
 
 #
 # Create Wallets
 #
 
 # First recreate database to avoid already exist errors
-test_databasefile = os.path.join(BCL_DATABASE_DIR, 'bitcoinlib.test.sqlite')
-test_database = 'sqlite:///' + test_databasefile
+test_databasefile = os.path.join(BCL_DATABASE_DIR, "fluxwallet.test.sqlite")
+test_database = "sqlite:///" + test_databasefile
 if os.path.isfile(test_databasefile):
     os.remove(test_databasefile)
 
 print("\n=== Create a wallet and a simple transaction ===")
-wlt = Wallet.create('wlttest1', network='bitcoinlib_test', db_uri=test_database)
+wlt = Wallet.create("wlttest1", network="fluxwallet_test", db_uri=test_database)
 wlt.get_key()
 wlt.utxos_update()  # Create some test UTXOs
 wlt.info()
@@ -37,13 +37,13 @@ wlt.info()
 
 
 print("\n=== Create a wallet, generate 6 UTXOs and create a sweep transaction ===")
-wlt = Wallet.create('wlttest2', network='bitcoinlib_test', db_uri=test_database)
+wlt = Wallet.create("wlttest2", network="fluxwallet_test", db_uri=test_database)
 wlt.get_keys(number_of_keys=3)
 wlt.utxos_update()  # Create some test UTXOs
 wlt.info()
 to_key = wlt.get_key()
 print("\n- Create transaction to sweep wallet")
-t = wlt.sweep('21Cr5enTHDejL7rQfyzMHQK3i7oAN3TZWDb')
+t = wlt.sweep("21Cr5enTHDejL7rQfyzMHQK3i7oAN3TZWDb")
 t.info()
 
 print("\n- Successfully send, updated wallet info:")

@@ -123,7 +123,7 @@ RELEASE 0.4.16 - Blocks
 
 RELEASE 0.4.15 - Integrate Blocksmurfer
 =======================================
-* Add support for new bitcoinlib-based Blocksmurfer provider
+* Add support for new fluxwallet-based Blocksmurfer provider
 * Fix issues with Service class and service providers
 * Fix various Bcoin issues
 * Fix antique P2PK transactions

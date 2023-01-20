@@ -53,10 +53,10 @@ Also called ScriptPubKey.
 +---------------+---------------------------+----------------+-------------------------+
 
 
-Bitcoinlib script support
+fluxwallet script support
 -------------------------
 
-The 'pubkey' lockscript and 'signature' unlocking script are ancient and not supported by BitcoinLib at
+The 'pubkey' lockscript and 'signature' unlocking script are ancient and not supported by fluxwallet at
 the moment.
 
 Using different encodings for addresses then the one listed in the Locking Script table is possible but

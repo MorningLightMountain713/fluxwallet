@@ -1,4 +1,4 @@
-Install, Update and Tweak BitcoinLib
+Install, Update and Tweak fluxwallet
 ====================================
 
 Installation
@@ -9,9 +9,9 @@ Install with pip
 
 .. code-block:: none
 
-    $ pip install bitcoinlib
+    $ pip install fluxwallet
 
-Package can be found at https://pypi.org/project/bitcoinlib/
+Package can be found at https://pypi.org/project/fluxwallet/
 
 Install from source
 ~~~~~~~~~~~~~~~~~~~
@@ -24,15 +24,15 @@ Create a virtual environment for instance on linux with virtualenv:
 
 .. code-block:: bash
 
-    $ virtualenv -p python3 venv/bitcoinlib
-    $ source venv/bitcoinlib/bin/activate
+    $ virtualenv -p python3 venv/fluxwallet
+    $ source venv/fluxwallet/bin/activate
 
 Then clone the repository and install dependencies:
 
 .. code-block:: bash
 
-    $ git clone https://github.com/1200wd/bitcoinlib.git
-    $ cd bitcoinlib
+    $ git clone https://github.com/1200wd/fluxwallet.git
+    $ cd fluxwallet
     $ pip install -r requirements-dev.txt
 
 
@@ -40,7 +40,7 @@ Then clone the repository and install dependencies:
 Package dependencies
 ~~~~~~~~~~~~~~~~~~~~
 
-Required Python Packages, are automatically installed upon installing bitcoinlib:
+Required Python Packages, are automatically installed upon installing fluxwallet:
 
 * fastecdsa (or ecdsa on Windows)
 * sqlalchemy
@@ -109,26 +109,26 @@ If you have problems with installing this library on Windows you could try to us
 scrypt. The pycryptodome library is pure Python so it doesn't need any C compilers installed. But this will run slower.
 
 
-Update Bitcoinlib
+Update fluxwallet
 -----------------
 
-Before you update make sure to backup your database! Also backup your settings files in ./bitcoinlib/config if you
+Before you update make sure to backup your database! Also backup your settings files in ./fluxwallet/config if you
 have made any changes.
 
 If you installed the library with pip upgrade with
 
 .. code-block:: none
 
-    $ pip install bitcoinlib --upgrade
+    $ pip install fluxwallet --upgrade
 
 Otherwise pull the git repository.
 
 After an update it might be necessary to update the config files. The config files will be overwritten
-with new versions if you delete the .bitcoinlib/install.log file.
+with new versions if you delete the .fluxwallet/install.log file.
 
 .. code-block:: none
 
-    $ rm .bitcoinlib/install.log
+    $ rm .fluxwallet/install.log
 
 If the new release contains database updates you have to migrate the database with the updatedb.py command.
 This program extracts keys and some wallet information from the old database and then creates a new database.
@@ -139,8 +139,8 @@ of database changes. So backup database / private keys first and use at your own
 
     $ python updatedb.py
     Wallet and Key data will be copied to new database. Transaction data will NOT be copied
-    Updating database file: /home/guest/.bitcoinlib/database/bitcoinlib.sqlite
-    Old database will be backed up to /home/guest/.bitcoinlib/database/bitcoinlib.sqlite.backup-20180711-01:46
+    Updating database file: /home/guest/.fluxwallet/database/fluxwallet.sqlite
+    Old database will be backed up to /home/guest/.fluxwallet/database/fluxwallet.sqlite.backup-20180711-01:46
     Type 'y' or 'Y' to continue or any other key to cancel: y
 
 
@@ -162,7 +162,7 @@ You can also use pycryptodome or pyscrypt instead of scrypt. Pycryptodome is a p
 derivation library. It works but it is slow when using BIP38 password protected keys.
 
 
-If you run into issues do not hesitate to contact us or file an issue at https://github.com/1200wd/bitcoinlib/issues
+If you run into issues do not hesitate to contact us or file an issue at https://github.com/1200wd/fluxwallet/issues
 
 
 Using library in other software
@@ -173,10 +173,10 @@ location for a config file in the BCL_CONFIG_FILE:
 
 .. code-block:: python
 
-    os.environ['BCL_CONFIG_FILE'] = '/var/www/blocksmurfer/bitcoinlib.ini'
+    os.environ['BCL_CONFIG_FILE'] = '/var/www/blocksmurfer/fluxwallet.ini'
 
 
-Tweak BitcoinLib
+Tweak fluxwallet
 ----------------
 
 You can `Add another service Provider <manuals.add-provider.html>`_ to this library by updating settings
@@ -187,4 +187,4 @@ both for privacy and reliability reasons. More setup information:
 `Setup connection to bitcoin node <manuals.setup-bitcoind-connection.html>`_
 
 Some service providers require an API key to function or allow additional requests.
-You can add this key to the provider settings file in .bitcoinlib/providers.json
+You can add this key to the provider settings file in .fluxwallet/providers.json

@@ -3,10 +3,10 @@ include LICENSE
 include CHANGELOG
 include *.py
 include requirements.txt
-recursive-include bitcoinlib/config *
-recursive-include bitcoinlib/data *
-recursive-include bitcoinlib/services *.py
-recursive-include bitcoinlib/wordlist *.txt
-recursive-include bitcoinlib/tools *.py
+recursive-include fluxwallet/config *
+recursive-include fluxwallet/data *
+recursive-include fluxwallet/services *.py
+recursive-include fluxwallet/wordlist *.txt
+recursive-include fluxwallet/tools *.py
 recursive-include tests *.json *.py *.pickle
 recursive-include docs *.pdf

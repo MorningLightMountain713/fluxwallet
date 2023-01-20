@@ -67,7 +67,7 @@ target/
 .idea
 *.sqlite
 .pypirc
-bitcoinlib.iml
+fluxwallet.iml
 venv/
 
 # Visual studio

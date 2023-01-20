@@ -363,19 +363,19 @@ ul.auto-toc {
 <div class="document">
 
 
-<!-- Bitcoinlib documentation master file, created by
+<!-- fluxwallet documentation master file, created by
 sphinx-quickstart on Sat Apr  8 10:06:16 2017.
 You can adapt this file completely to your liking, but it should at least
 contain the root `toctree` directive. -->
-<div class="section" id="welcome-to-bitcoinlib-s-documentation">
-<h1>Welcome to Bitcoinlib's documentation!</h1>
+<div class="section" id="welcome-to-fluxwallet-s-documentation">
+<h1>Welcome to fluxwallet's documentation!</h1>
 <p>Bitcoin and other Crypto Currency Library for Python.</p>
 <p>Includes a fully functional wallet, with multi signature, multi currency and multiple accounts. Use this
 library to create and manage transactions, addresses/keys, wallets, mnemonic password phrases and blocks with
 simple and straightforward Python code.</p>
 <p>You can use this library at a high level and create and manage wallets on the command line or at a low level
 and create your own custom made transactions, scripts, keys or wallets.</p>
-<p>The BitcoinLib connects to various service providers automatically to update wallets, transactions and
+<p>The fluxwallet connects to various service providers automatically to update wallets, transactions and
 blockchain information.</p>
 <div class="section" id="wallet">
 <h2>Wallet</h2>
@@ -383,7 +383,7 @@ blockchain information.</p>
 import, create and manage keys in a Hierarchical Deterministic way.</p>
 <p>Example: Create wallet and generate new address (key) to receive bitcoins</p>
 <pre class="code pycon literal-block">
-<span class="keyword namespace"></span><span class="generic prompt">&gt;&gt;&gt; </span><span class="keyword namespace">from</span> <span class="name namespace">bitcoinlib.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span>
+<span class="keyword namespace"></span><span class="generic prompt">&gt;&gt;&gt; </span><span class="keyword namespace">from</span> <span class="name namespace">fluxwallet.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span>
 <span class="generic prompt">&gt;&gt;&gt; </span><span class="name">w</span> <span class="operator">=</span> <span class="name">Wallet</span><span class="operator">.</span><span class="name">create</span><span class="punctuation">(</span><span class="literal string single">'Wallet1'</span><span class="punctuation">)</span>
 <span class="generic prompt">&gt;&gt;&gt; </span><span class="name">key1</span> <span class="operator">=</span> <span class="name">w</span><span class="operator">.</span><span class="name">get_key</span><span class="punctuation">()</span>
 <span class="generic prompt">&gt;&gt;&gt; </span><span class="name">key1</span><span class="operator">.</span><span class="name">address</span>
@@ -408,14 +408,14 @@ If successful a transaction ID is returned</p>
 wallets with traditional addresses are available.</p>
 <p>Create a native single key P2WPKH wallet:</p>
 <pre class="code pycon literal-block">
-<span class="keyword namespace"></span><span class="generic prompt">&gt;&gt;&gt; </span><span class="keyword namespace">from</span> <span class="name namespace">bitcoinlib.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span>
+<span class="keyword namespace"></span><span class="generic prompt">&gt;&gt;&gt; </span><span class="keyword namespace">from</span> <span class="name namespace">fluxwallet.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span>
 <span class="generic prompt">&gt;&gt;&gt; </span><span class="name">w</span> <span class="operator">=</span> <span class="name">Wallet</span><span class="operator">.</span><span class="name">create</span><span class="punctuation">(</span><span class="literal string single">'segwit_p2wpkh'</span><span class="punctuation">,</span> <span class="name">witness_type</span><span class="operator">=</span><span class="literal string single">'segwit'</span><span class="punctuation">)</span>
 <span class="generic prompt">&gt;&gt;&gt; </span><span class="name">w</span><span class="operator">.</span><span class="name">get_key</span><span class="punctuation">()</span><span class="operator">.</span><span class="name">address</span>
 <span class="generic output">bc1q84y2quplejutvu0h4gw9hy59fppu3thg0u2xz3</span>
 </pre>
 <p>Or create a P2SH nested single key P2SH_P2WPKH wallet:</p>
 <pre class="code pycon literal-block">
-<span class="keyword namespace"></span><span class="generic prompt">&gt;&gt;&gt; </span><span class="keyword namespace">from</span> <span class="name namespace">bitcoinlib.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span>
+<span class="keyword namespace"></span><span class="generic prompt">&gt;&gt;&gt; </span><span class="keyword namespace">from</span> <span class="name namespace">fluxwallet.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span>
 <span class="generic prompt">&gt;&gt;&gt; </span><span class="name">w</span> <span class="operator">=</span> <span class="name">Wallet</span><span class="operator">.</span><span class="name">create</span><span class="punctuation">(</span><span class="literal string single">'segwit_p2sh_p2wpkh'</span><span class="punctuation">,</span> <span class="name">witness_type</span><span class="operator">=</span><span class="literal string single">'p2sh-segwit'</span><span class="punctuation">)</span>
 <span class="generic prompt">&gt;&gt;&gt; </span><span class="name">w</span><span class="operator">.</span><span class="name">get_key</span><span class="punctuation">()</span><span class="operator">.</span><span class="name">address</span>
 <span class="generic output">36ESSWgR4WxXJSc4ysDSJvecyY6FJkhUbp</span>
@@ -426,8 +426,8 @@ wallets with traditional addresses are available.</p>
 <p>The following code creates a wallet with two bitcoin and one litecoin account from a Mnemonic passphrase.
 The complete wallet can be recovered from the passphrase which is the masterkey.</p>
 <pre class="code python literal-block">
-<span class="keyword namespace">from</span> <span class="name namespace">bitcoinlib.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span><span class="punctuation">,</span> <span class="name">wallet_delete</span>
-<span class="keyword namespace">from</span> <span class="name namespace">bitcoinlib.mnemonic</span> <span class="keyword namespace">import</span> <span class="name">Mnemonic</span>
+<span class="keyword namespace">from</span> <span class="name namespace">fluxwallet.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span><span class="punctuation">,</span> <span class="name">wallet_delete</span>
+<span class="keyword namespace">from</span> <span class="name namespace">fluxwallet.mnemonic</span> <span class="keyword namespace">import</span> <span class="name">Mnemonic</span>
 
 <span class="name">passphrase</span> <span class="operator">=</span> <span class="name">Mnemonic</span><span class="punctuation">()</span><span class="operator">.</span><span class="name">generate</span><span class="punctuation">()</span>
 <span class="name builtin">print</span><span class="punctuation">(</span><span class="name">passphrase</span><span class="punctuation">)</span>
@@ -444,8 +444,8 @@ The complete wallet can be recovered from the passphrase which is the masterkey.
 <h2>Multi Signature Wallets</h2>
 <p>Create a Multisig wallet with 2 cosigners which both need to sign a transaction.</p>
 <pre class="code python literal-block">
-<span class="keyword namespace">from</span> <span class="name namespace">bitcoinlib.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span>
-<span class="keyword namespace">from</span> <span class="name namespace">bitcoinlib.keys</span> <span class="keyword namespace">import</span> <span class="name">HDKey</span>
+<span class="keyword namespace">from</span> <span class="name namespace">fluxwallet.wallets</span> <span class="keyword namespace">import</span> <span class="name">Wallet</span>
+<span class="keyword namespace">from</span> <span class="name namespace">fluxwallet.keys</span> <span class="keyword namespace">import</span> <span class="name">HDKey</span>
 
 <span class="name">NETWORK</span> <span class="operator">=</span> <span class="literal string single">'testnet'</span>
 <span class="name">k1</span> <span class="operator">=</span> <span class="name">HDKey</span><span class="punctuation">(</span><span class="literal string single">'tprv8ZgxMBicQKsPd1Q44tfDiZC98iYouKRC2CzjT3HGt1yYw2zuX2awTotzGAZQEAU9bi2M5MCj8iedP9MREPjUgpDEBwBgGi2C8eK'</span>
@@ -479,7 +479,7 @@ The complete wallet can be recovered from the passphrase which is the masterkey.
 <p>To create a new Bitcoin wallet</p>
 <pre class="code bash literal-block">
 $ clw newwallet
-Command Line Wallet <span class="keyword">for</span> BitcoinLib
+Command Line Wallet <span class="keyword">for</span> fluxwallet
 
 Wallet newwallet does not exist, create new wallet <span class="operator">[</span>yN<span class="operator">]</span>? y
 
@@ -492,7 +492,7 @@ Please write down on paper and backup. With this key you can restore your wallet
 <p>You can use the command line wallet 'clw' to create simple or multisig wallets for various networks,
 manage public and private keys and managing transactions.</p>
 <p>For the full command line wallet documentation please read</p>
-<p><a class="reference external" href="http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.command-line-wallet.html">http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.command-line-wallet.html</a></p>
+<p><a class="reference external" href="http://fluxwallet.readthedocs.io/en/latest/_static/manuals.command-line-wallet.html">http://fluxwallet.readthedocs.io/en/latest/_static/manuals.command-line-wallet.html</a></p>
 </div>
 <div class="section" id="service-providers">
 <h2>Service providers</h2>
@@ -501,22 +501,22 @@ To push a transaction to the network. To determine optimal service fee for a tra
 wallet's balance.</p>
 <p>Example: Get estimated transactionfee in Sathosis per Kb for confirmation within 5 blocks</p>
 <pre class="code pycon literal-block">
-<span class="keyword namespace"></span><span class="generic prompt">&gt;&gt;&gt; </span><span class="keyword namespace">from</span> <span class="name namespace">bitcoinlib.services.services</span> <span class="keyword namespace">import</span> <span class="name">Service</span>
+<span class="keyword namespace"></span><span class="generic prompt">&gt;&gt;&gt; </span><span class="keyword namespace">from</span> <span class="name namespace">fluxwallet.services.services</span> <span class="keyword namespace">import</span> <span class="name">Service</span>
 <span class="generic prompt">&gt;&gt;&gt; </span><span class="name">Service</span><span class="punctuation">()</span><span class="operator">.</span><span class="name">estimatefee</span><span class="punctuation">(</span><span class="literal number integer">5</span><span class="punctuation">)</span>
 <span class="generic output">138964</span>
 </pre>
 </div>
 <div class="section" id="other-databases">
 <h2>Other Databases</h2>
-<p>Bitcoinlib uses the SQLite database by default but other databases are supported as well.
-See <a class="reference external" href="http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.databases.html">http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.databases.html</a> for instructions on how to use
+<p>fluxwallet uses the SQLite database by default but other databases are supported as well.
+See <a class="reference external" href="http://fluxwallet.readthedocs.io/en/latest/_static/manuals.databases.html">http://fluxwallet.readthedocs.io/en/latest/_static/manuals.databases.html</a> for instructions on how to use
 MySQL or PostgreSQL.</p>
 </div>
 <div class="section" id="more-examples">
 <h2>More examples</h2>
-<p>For more examples see <a class="reference external" href="https://github.com/1200wd/bitcoinlib/tree/master/examples">https://github.com/1200wd/bitcoinlib/tree/master/examples</a></p>
+<p>For more examples see <a class="reference external" href="https://github.com/1200wd/fluxwallet/tree/master/examples">https://github.com/1200wd/fluxwallet/tree/master/examples</a></p>
 <div class="system-message">
-<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/bitcoinlib/docs/index.rst</tt>, line 200)</p>
+<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/fluxwallet/docs/index.rst</tt>, line 200)</p>
 <p>Unknown directive type &quot;toctree&quot;.</p>
 <pre class="literal-block">
 .. toctree::
@@ -536,31 +536,31 @@ MySQL or PostgreSQL.</p>
 </pre>
 </div>
 <div class="system-message">
-<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/bitcoinlib/docs/index.rst</tt>, line 214)</p>
+<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/fluxwallet/docs/index.rst</tt>, line 214)</p>
 <p>Unknown directive type &quot;toctree&quot;.</p>
 <pre class="literal-block">
 .. toctree::
    :caption: Classes
    :maxdepth: 1
 
-   Key &lt;source/bitcoinlib.keys&gt;
-   Transaction &lt;source/bitcoinlib.transactions&gt;
-   Script &lt;source/bitcoinlib.scripts&gt;
-   Wallet &lt;source/bitcoinlib.wallets&gt;
-   Mnemonic &lt;source/bitcoinlib.mnemonic&gt;
-   Network &lt;source/bitcoinlib.networks&gt;
-   Block &lt;source/bitcoinlib.blocks&gt;
-   Value &lt;source/bitcoinlib.values&gt;
-   Service &lt;source/bitcoinlib.services.services&gt;
-   Service providers &lt;source/bitcoinlib.services&gt;
-   Config &lt;source/bitcoinlib.config&gt;
-   Database &lt;source/bitcoinlib.db&gt;
-   Cache &lt;source/bitcoinlib.db_cache&gt;
+   Key &lt;source/fluxwallet.keys&gt;
+   Transaction &lt;source/fluxwallet.transactions&gt;
+   Script &lt;source/fluxwallet.scripts&gt;
+   Wallet &lt;source/fluxwallet.wallets&gt;
+   Mnemonic &lt;source/fluxwallet.mnemonic&gt;
+   Network &lt;source/fluxwallet.networks&gt;
+   Block &lt;source/fluxwallet.blocks&gt;
+   Value &lt;source/fluxwallet.values&gt;
+   Service &lt;source/fluxwallet.services.services&gt;
+   Service providers &lt;source/fluxwallet.services&gt;
+   Config &lt;source/fluxwallet.config&gt;
+   Database &lt;source/fluxwallet.db&gt;
+   Cache &lt;source/fluxwallet.db_cache&gt;
 
 </pre>
 </div>
 <div class="system-message">
-<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/bitcoinlib/docs/index.rst</tt>, line 232)</p>
+<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/fluxwallet/docs/index.rst</tt>, line 232)</p>
 <p>Unknown directive type &quot;toctree&quot;.</p>
 <pre class="literal-block">
 .. toctree::
@@ -569,8 +569,8 @@ MySQL or PostgreSQL.</p>
 
    source/_static/classes-overview
    Modules &lt;source/modules&gt;
-   Encoding &lt;source/bitcoinlib.encoding&gt;
-   Tools &lt;source/bitcoinlib.tools&gt;
+   Encoding &lt;source/fluxwallet.encoding&gt;
+   Tools &lt;source/fluxwallet.tools&gt;
    source/_static/script-types-overview
 
 
@@ -593,19 +593,19 @@ production environment.</p>
 <ul>
 <li><p class="first"><a href="#id1"><span class="problematic" id="id2">:ref:`genindex`</span></a></p>
 <div class="system-message" id="id1">
-<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/bitcoinlib/docs/index.rst</tt>, line 260); <em><a href="#id2">backlink</a></em></p>
+<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/fluxwallet/docs/index.rst</tt>, line 260); <em><a href="#id2">backlink</a></em></p>
 <p>Unknown interpreted text role &quot;ref&quot;.</p>
 </div>
 </li>
 <li><p class="first"><a href="#id3"><span class="problematic" id="id4">:ref:`modindex`</span></a></p>
 <div class="system-message" id="id3">
-<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/bitcoinlib/docs/index.rst</tt>, line 261); <em><a href="#id4">backlink</a></em></p>
+<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/fluxwallet/docs/index.rst</tt>, line 261); <em><a href="#id4">backlink</a></em></p>
 <p>Unknown interpreted text role &quot;ref&quot;.</p>
 </div>
 </li>
 <li><p class="first"><a href="#id5"><span class="problematic" id="id6">:ref:`search`</span></a></p>
 <div class="system-message" id="id5">
-<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/bitcoinlib/docs/index.rst</tt>, line 262); <em><a href="#id6">backlink</a></em></p>
+<p class="system-message-title">System Message: ERROR/3 (<tt class="docutils">/home/lennart/code/fluxwallet/docs/index.rst</tt>, line 262); <em><a href="#id6">backlink</a></em></p>
 <p>Unknown interpreted text role &quot;ref&quot;.</p>
 </div>
 </li>

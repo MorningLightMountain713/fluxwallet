@@ -20,18 +20,18 @@ The fee estimation for a specific network is stored for 10 minutes.
 Using other databases
 ---------------------
 
-By default the cache is stored in a SQLite database in the database folder: ~/.bitcoinlib/databases/bitcoinlib_cache.sqlite
+By default the cache is stored in a SQLite database in the database folder: ~/.fluxwallet/databases/fluxwallet_cache.sqlite
 The location and type of database can be changed in the config.ini with the default_databasefile_cache variable.
 
 Other type of databases can be used as well, check
-http://bitcoinlib.readthedocs.io/en/latest/_static/manuals.databases.html for more information.
+http://fluxwallet.readthedocs.io/en/latest/_static/manuals.databases.html for more information.
 
 
 Disable caching
 ---------------
 
 Caching is enabled by default. To disable caching set the environment variable SERVICE_CACHING_ENABLED to False or
-set this variable (service_caching_enabled) in the config.ini file placed in your .bitcoinlib/ directory.
+set this variable (service_caching_enabled) in the config.ini file placed in your .fluxwallet/ directory.
 
 
 Troubleshooting
@@ -50,5 +50,5 @@ I get incomplete or incorrect results!
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - Please post an issues in the Github issue-tracker so we can take a look.
-- You can delete the database in ~/.bitcoinlib/databases/bitcoinlib_cache.sqlite for an easy fix, or disable caching
+- You can delete the database in ~/.fluxwallet/databases/fluxwallet_cache.sqlite for an easy fix, or disable caching
   if that really doesn't work out.

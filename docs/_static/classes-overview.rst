@@ -1,11 +1,11 @@
 Classes Overview
 ================
 
-These are the main Bitcoinlib classes
+These are the main fluxwallet classes
 
 .. image:: ../_static/classes-overview.jpg
 
-This is an overview of all BitcoinLib classes.
+This is an overview of all fluxwallet classes.
 
 .. image:: ../_static/classes-overview-detailed.jpg
 

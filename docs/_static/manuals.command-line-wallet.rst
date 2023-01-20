@@ -27,7 +27,7 @@ To create a wallet just specify an unused wallet name:
 .. code-block:: none
 
     $ clw mywallet
-    Command Line Wallet for BitcoinLib
+    Command Line Wallet for fluxwallet
 
     Wallet mywallet does not exist, create new wallet [yN]? y
 
@@ -50,7 +50,7 @@ codes on the commandline install the pyqrcode module.
 .. code-block:: none
 
     $ clw mywallet -r
-    Command Line Wallet for BitcoinLib
+    Command Line Wallet for fluxwallet
 
     Receive address is 1JMKBiiDMdjTx6rfqGumALvcRMX6DQNeG1
 
@@ -88,7 +88,7 @@ addresses and update unspend outputs.
 Options Overview
 ----------------
 
-Command Line Wallet for BitcoinLib
+Command Line Wallet for fluxwallet
 
 .. code-block:: none
 
@@ -107,7 +107,7 @@ Command Line Wallet for BitcoinLib
                        [--import-tx-file FILENAME_TRANSACTION]
                        [wallet_name]
 
-    BitcoinLib CLI
+    fluxwallet CLI
 
     positional arguments:
       wallet_name           Name of wallet to create or open. Used to store your
@@ -120,7 +120,7 @@ Command Line Wallet for BitcoinLib
     Wallet Actions:
       --wallet-remove       Name or ID of wallet to remove, all keys and
                             transactions will be deleted
-      --list-wallets, -l    List all known wallets in BitcoinLib database
+      --list-wallets, -l    List all known wallets in fluxwallet database
       --wallet-info, -w     Show wallet information
       --update-utxos, -x    Update unspent transaction outputs (UTXO's) for this
                             wallet
