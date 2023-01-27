@@ -40,7 +40,7 @@ class Mnemonic(object):
 
         """
         self._wordlist = []
-        with Path(BCL_INSTALL_DIR, "wordlist", "%s.txt" % language).open() as f:
+        with Path(FW_INSTALL_DIR, "wordlist", "%s.txt" % language).open() as f:
             self._wordlist = [w.strip() for w in f.readlines()]
 
     @staticmethod
@@ -216,10 +216,10 @@ class Mnemonic(object):
             words = words.split(" ")
 
         wlcount = {}
-        for fn in Path(BCL_INSTALL_DIR, "wordlist").iterdir():
+        for fn in Path(FW_INSTALL_DIR, "wordlist").iterdir():
             if fn.suffix == ".txt":
                 with open(
-                    os.path.join(str(BCL_INSTALL_DIR), "wordlist", fn), encoding="utf-8"
+                    os.path.join(str(FW_INSTALL_DIR), "wordlist", fn), encoding="utf-8"
                 ) as f:
                     wordlist = [w.strip() for w in f.readlines()]
                     language = fn.name.split(".")[0]
@@ -247,7 +247,7 @@ class Mnemonic(object):
         language = self.detect_language(words)
         if isinstance(words, TYPE_TEXT):
             words = words.split(" ")
-        with Path(BCL_INSTALL_DIR, "wordlist", "%s.txt" % language).open() as f:
+        with Path(FW_INSTALL_DIR, "wordlist", "%s.txt" % language).open() as f:
             wordlist = [w.strip() for w in f.readlines()]
             for word in words:
                 if word not in wordlist:

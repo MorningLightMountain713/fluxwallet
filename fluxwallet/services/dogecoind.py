@@ -88,7 +88,7 @@ class DogecoindClient(BaseClient):
                 if cfn.exists():
                     break
         else:
-            cfn = Path(BCL_DATA_DIR, "config", configfile)
+            cfn = Path(FW_DATA_DIR, "config", configfile)
         if not cfn or not cfn.is_file():
             raise ConfigError(
                 "Config file %s not found. Please install dogecoin client and specify a path to config "

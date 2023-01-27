@@ -40,10 +40,10 @@ from fluxwallet.wallets import *
 from tests.test_custom import CustomAssertions
 
 DATABASEFILE_UNITTESTS = os.path.join(
-    str(BCL_DATABASE_DIR), "fluxwallet.unittest.sqlite"
+    str(FW_DATABASE_DIR), "fluxwallet.unittest.sqlite"
 )
 DATABASEFILE_UNITTESTS_2 = os.path.join(
-    str(BCL_DATABASE_DIR), "fluxwallet.unittest2.sqlite"
+    str(FW_DATABASE_DIR), "fluxwallet.unittest2.sqlite"
 )
 DATABASE_NAME = "fluxwallet_test"
 DATABASE_NAME_2 = "fluxwallet2_test"

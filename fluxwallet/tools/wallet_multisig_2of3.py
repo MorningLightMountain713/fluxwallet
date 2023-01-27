@@ -110,10 +110,10 @@ if not wallet_exists(WALLET_NAME):
     print("wlt.get_key()")
     print("wlt.info()")
 else:
-    from fluxwallet.config.config import BCL_DATABASE_DIR, fluxwallet_VERSION
+    from fluxwallet.config.config import FW_DATABASE_DIR, fluxwallet_VERSION
 
     online_wallet = Wallet(
-        WALLET_NAME, db_uri=BCL_DATABASE_DIR + "/fluxwallet.tmp.sqlite"
+        WALLET_NAME, db_uri=FW_DATABASE_DIR + "/fluxwallet.tmp.sqlite"
     )
     online_wallet.utxos_update()
     online_wallet.info()

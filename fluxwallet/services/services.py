@@ -98,7 +98,7 @@ class Service(object):
             self.network = Network(network)
         if min_providers > max_providers:
             max_providers = min_providers
-        fn = Path(BCL_DATA_DIR, "providers.json")
+        fn = Path(FW_DATA_DIR, "providers.json")
         f = fn.open("r")
 
         try:

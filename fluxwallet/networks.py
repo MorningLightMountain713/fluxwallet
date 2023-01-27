@@ -21,6 +21,7 @@
 import json
 
 from fluxwallet.encoding import *
+from fluxwallet.config.config import FW_DATA_DIR
 
 _logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def _read_network_definitions():
     :return dict: Network definitions
     """
 
-    fn = Path(BCL_DATA_DIR, "networks.json")
+    fn = FW_DATA_DIR / "networks.json"
     f = fn.open("rb")
 
     try:

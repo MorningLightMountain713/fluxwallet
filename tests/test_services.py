@@ -43,10 +43,10 @@ MAXIMUM_ESTIMATED_FEE_DIFFERENCE = (
 # Use value above >0, and 1 for 100%
 
 DATABASEFILE_CACHE_UNITTESTS = os.path.join(
-    str(BCL_DATABASE_DIR), "fluxwalletcache.unittest.sqlite"
+    str(FW_DATABASE_DIR), "fluxwalletcache.unittest.sqlite"
 )
 DATABASEFILE_CACHE_UNITTESTS2 = os.path.join(
-    str(BCL_DATABASE_DIR), "fluxwalletcache2.unittest.sqlite"
+    str(FW_DATABASE_DIR), "fluxwalletcache2.unittest.sqlite"
 )
 DATABASE_CACHE_POSTGRESQL = (
     "postgresql://postgres:postgres@localhost:5432/fluxwalletcache.unittest"

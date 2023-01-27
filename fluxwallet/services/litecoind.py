@@ -87,7 +87,7 @@ class LitecoindClient(BaseClient):
                 if cfn.exists():
                     break
         else:
-            cfn = Path(BCL_DATA_DIR, "config", configfile)
+            cfn = Path(FW_DATA_DIR, "config", configfile)
 
         if not cfn or not cfn.is_file():
             raise ConfigError(

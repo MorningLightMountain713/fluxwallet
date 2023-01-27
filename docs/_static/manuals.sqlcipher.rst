@@ -18,7 +18,7 @@ Now you can use a SQLCipher database URI to create and query a encrypted databas
 .. code-block:: python
 
     password = 'secret'
-    filename = '~/.fluxwallet/database/bcl_encrypted.db'
+    filename = '~/.fluxwallet/database/FW_encrypted.db'
     db_uri = 'sqlite+pysqlcipher://:%s@/%s?cipher=aes-256-cfb&kdf_iter=64000' % (password, filename)
     wlt = Wallet.create('bcltestwlt4', network='fluxwallet_test', db_uri=db_uri)
 
@@ -26,6 +26,6 @@ If you look at the contents of the SQLite database you can see it is encrypted.
 
 .. code-block:: bash
 
-    $ cat ~/.fluxwallet/database/bcl_encrypted.db
+    $ cat ~/.fluxwallet/database/FW_encrypted.db
     <outputs unreadable random garbage>
 

@@ -20,7 +20,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from fluxwallet.db import Base, DbConfig, DbKey, DbKeyMultisigChildren, DbWallet
-from fluxwallet.main import BCL_DATABASE_DIR, fluxwallet_VERSION, DEFAULT_DATABASE
+from fluxwallet.main import FW_DATABASE_DIR, fluxwallet_VERSION, DEFAULT_DATABASE
 
 print(
     "Database should update automatically when using fluxwallet. If automatic update fails you can run this script. "
@@ -43,9 +43,9 @@ def parse_args():
 args = parse_args()
 database_file = args.database
 if not os.path.isfile(database_file):
-    database_file = os.path.join(BCL_DATABASE_DIR, database_file)
+    database_file = os.path.join(FW_DATABASE_DIR, database_file)
 database_backup_file = os.path.join(
-    BCL_DATABASE_DIR,
+    FW_DATABASE_DIR,
     "%s.backup-%s" % (database_file, datetime.now().strftime("%Y%m%d-%I:%M")),
 )
 

@@ -12,7 +12,7 @@ from pprint import pprint
 
 from fluxwallet.wallets import *
 
-test_databasefile = os.path.join(BCL_DATABASE_DIR, "fluxwallet.test.sqlite")
+test_databasefile = os.path.join(FW_DATABASE_DIR, "fluxwallet.test.sqlite")
 test_database = "sqlite:///" + test_databasefile
 if os.path.isfile(test_databasefile):
     os.remove(test_databasefile)

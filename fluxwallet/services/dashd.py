@@ -79,7 +79,7 @@ class DashdClient(BaseClient):
                     "an external server."
                 )
         else:
-            cfn = os.path.join(BCL_DATA_DIR, "config", configfile)
+            cfn = os.path.join(FW_DATA_DIR, "config", configfile)
             if not os.path.isfile(cfn):
                 raise ConfigError("Config file %s not found" % cfn)
         with open(cfn, "r") as f:

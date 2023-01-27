@@ -169,11 +169,11 @@ Using library in other software
 -------------------------------
 
 If you use the library in other software and want to change file locations and other settings you can specify a
-location for a config file in the BCL_CONFIG_FILE:
+location for a config file in the FW_CONFIG_FILE:
 
 .. code-block:: python
 
-    os.environ['BCL_CONFIG_FILE'] = '/var/www/blocksmurfer/fluxwallet.ini'
+    os.environ['FW_CONFIG_FILE'] = '/var/www/blocksmurfer/fluxwallet.ini'
 
 
 Tweak fluxwallet

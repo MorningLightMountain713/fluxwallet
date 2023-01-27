@@ -19,11 +19,11 @@ try:
 except ImportError:
     pass  # Only necessary when mysql or postgres is used
 
-from fluxwallet.db import BCL_DATABASE_DIR
+from fluxwallet.db import FW_DATABASE_DIR
 from fluxwallet.encoding import normalize_string
 from fluxwallet.main import UNITTESTS_FULL_DATABASE_TEST
 
-SQLITE_DATABASE_FILE = os.path.join(str(BCL_DATABASE_DIR), "fluxwallet.unittest.sqlite")
+SQLITE_DATABASE_FILE = os.path.join(str(FW_DATABASE_DIR), "fluxwallet.unittest.sqlite")
 DATABASE_NAME = "fluxwallet_unittest"
 
 

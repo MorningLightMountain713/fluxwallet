@@ -29,11 +29,11 @@ from fluxwallet.wallets import Wallet, WalletError
 from tests.db_0_5 import Db as DbInitOld
 
 DATABASEFILE_UNITTESTS = os.path.join(
-    str(BCL_DATABASE_DIR), "fluxwallet.unittest.sqlite"
+    str(FW_DATABASE_DIR), "fluxwallet.unittest.sqlite"
 )
-DATABASEFILE_TMP = os.path.join(str(BCL_DATABASE_DIR), "fluxwallet.tmp.sqlite")
+DATABASEFILE_TMP = os.path.join(str(FW_DATABASE_DIR), "fluxwallet.tmp.sqlite")
 DATABASEFILE_CACHE_TMP = os.path.join(
-    str(BCL_DATABASE_DIR), "fluxwallet_cache.tmp.sqlite"
+    str(FW_DATABASE_DIR), "fluxwallet_cache.tmp.sqlite"
 )
 
 

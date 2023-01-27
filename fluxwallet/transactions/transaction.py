@@ -29,7 +29,7 @@ from io import BytesIO
 from pathlib import Path
 
 from fluxwallet.config.config import (
-    BCL_DATA_DIR,
+    FW_DATA_DIR,
     DEFAULT_NETWORK,
     SEQUENCE_LOCKTIME_DISABLE_FLAG,
     SEQUENCE_LOCKTIME_MASK,
@@ -251,11 +251,11 @@ class TransactionBuilder:
         if not filename and not txid:
             raise TransactionError("Please supply filename or txid")
         elif not filename and txid:
-            p = Path(BCL_DATA_DIR, "%s.tx" % txid)
+            p = Path(FW_DATA_DIR, "%s.tx" % txid)
         else:
             p = Path(filename)
             if not p.parent or str(p.parent) == ".":
-                p = Path(BCL_DATA_DIR, filename)
+                p = Path(FW_DATA_DIR, filename)
         f = p.open("rb")
         t = pickle.load(f)
         f.close()
@@ -1069,11 +1069,11 @@ class TransactionBuilder:
         :return:
         """
         if not filename:
-            p = Path(BCL_DATA_DIR, "%s.tx" % self.txid)
+            p = Path(FW_DATA_DIR, "%s.tx" % self.txid)
         else:
             p = Path(filename)
             if not p.parent or str(p.parent) == ".":
-                p = Path(BCL_DATA_DIR, filename)
+                p = Path(FW_DATA_DIR, filename)
         f = p.open("wb")
         pickle.dump(self, f)
         f.close()

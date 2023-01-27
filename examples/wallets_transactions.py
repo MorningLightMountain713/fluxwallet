@@ -10,14 +10,14 @@
 import os
 from pprint import pprint
 
-from fluxwallet.wallets import BCL_DATABASE_DIR, Wallet
+from fluxwallet.wallets import FW_DATABASE_DIR, Wallet
 
 #
 # Create Wallets
 #
 
 # First recreate database to avoid already exist errors
-test_databasefile = os.path.join(BCL_DATABASE_DIR, "fluxwallet.test.sqlite")
+test_databasefile = os.path.join(FW_DATABASE_DIR, "fluxwallet.test.sqlite")
 test_database = "sqlite:///" + test_databasefile
 if os.path.isfile(test_databasefile):
     os.remove(test_databasefile)
