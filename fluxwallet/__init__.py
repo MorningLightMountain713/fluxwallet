@@ -26,13 +26,4 @@ import fluxwallet.transactions
 import fluxwallet.values
 import fluxwallet.wallets
 
-__all__ = [
-    "keys",
-    "transactions",
-    "wallets",
-    "encoding",
-    "mnemonic",
-    "tools",
-    "blocks",
-    "values",
-]
+__all__ = ["keys", "transactions", "wallets", "encoding", "mnemonic", "tools", "blocks", "values"]

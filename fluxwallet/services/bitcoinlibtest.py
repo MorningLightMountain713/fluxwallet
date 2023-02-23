@@ -21,21 +21,17 @@
 import hashlib
 import logging
 
-from fluxwallet.encoding import (
-    addr_bech32_to_pubkeyhash,
-    addr_to_pubkeyhash,
-    double_sha256,
-    to_bytes,
-)
+from fluxwallet.encoding import (addr_bech32_to_pubkeyhash, addr_to_pubkeyhash,
+                                 double_sha256, to_bytes)
 from fluxwallet.main import MAX_TRANSACTIONS
 from fluxwallet.services.baseclient import BaseClient
 
 _logger = logging.getLogger(__name__)
 
-PROVIDERNAME = "fluxwallet"
+PROVIDERNAME = 'bitcoinlib'
 
 
-class fluxwalletTestClient(BaseClient):
+class BitcoinlibTestClient(BaseClient):
     """
     Dummy service client for fluxwallet test network. Only used for testing.
 
@@ -44,9 +40,7 @@ class fluxwalletTestClient(BaseClient):
     """
 
     def __init__(self, network, base_url, denominator, *args):
-        super(self.__class__, self).__init__(
-            network, PROVIDERNAME, base_url, denominator, *args
-        )
+        super(self.__class__, self).__init__(network, PROVIDERNAME, base_url, denominator, *args)
 
     def getbalance(self, addresslist):
         """
@@ -66,7 +60,7 @@ class fluxwalletTestClient(BaseClient):
             pkh = str(n).encode() + addr_bech32_to_pubkeyhash(address)[1:]
         return hashlib.sha256(pkh).hexdigest()
 
-    def getutxos(self, address, after_txid="", limit=10, utxos_per_address=2):
+    def getutxos(self, address, after_txid='', limit=10, utxos_per_address=2):
         """
         Dummy method to retreive UTXO's. This method creates a new UTXO for each address provided out of the
         testnet void, which can be used to create test transactions for the fluxwallet testnet.
@@ -85,13 +79,13 @@ class fluxwalletTestClient(BaseClient):
             txid = self._get_txid(address, n)
             utxos.append(
                 {
-                    "address": address,
-                    "txid": txid,
-                    "confirmations": 10,
-                    "output_n": 0,
-                    "index": 0,
-                    "value": 1 * self.units,
-                    "script": "",
+                    'address': address,
+                    'txid': txid,
+                    'confirmations': 10,
+                    'output_n': 0,
+                    'index': 0,
+                    'value': 1 * self.units,
+                    'script': '',
                 }
             )
         return utxos
@@ -111,7 +105,10 @@ class fluxwalletTestClient(BaseClient):
         :return str: Transaction hash
         """
         txid = double_sha256(to_bytes(rawtx))[::-1].hex()
-        return {"txid": txid, "response_dict": {}}
+        return {
+            'txid': txid,
+            'response_dict': {}
+        }
 
     def estimatefee(self, blocks):
         """
@@ -127,5 +124,5 @@ class fluxwalletTestClient(BaseClient):
     def blockcount(self):
         return 1
 
-    def mempool(self, txid=""):
+    def mempool(self, txid=''):
         return [txid]

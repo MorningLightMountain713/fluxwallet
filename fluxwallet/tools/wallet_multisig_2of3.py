@@ -20,10 +20,10 @@ from fluxwallet.mnemonic import Mnemonic
 from fluxwallet.wallets import Wallet, wallet_exists
 
 WALLET_NAME = "Multisig-2of3"
-NETWORK = "testnet"
+NETWORK = 'testnet'
 KEY_STRENGTH = 128  # Remove this line to use the default 256 bit key strength
 SIGNATURES_REQUIRED = 2
-WITNESS_TYPE = "segwit"  # Witness type can be legacy, p2sh-segwit or segwit
+WITNESS_TYPE = 'segwit'  # Witness type can be legacy, p2sh-segwit or segwit
 
 # from fluxwallet.wallets import wallet_delete_if_exists
 # wallet_delete_if_exists(WALLET_NAME, force=True)
@@ -31,39 +31,33 @@ WITNESS_TYPE = "segwit"  # Witness type can be legacy, p2sh-segwit or segwit
 if not wallet_exists(WALLET_NAME):
     # Define cosigners, format (name, key_type, [password], wallet)
     cosigners = [
-        ("Offline PC", "bip32", "password"),
-        ("Online PC", "bip32", ""),
-        ("Paper backup", "single", ""),
+        ('Offline PC', 'bip32', 'password'),
+        ('Online PC', 'bip32', ''),
+        ('Paper backup', 'single', ''),
     ]
 
-    print(
-        "We will generate 3 private keys, to sign and send a transaction 2 keys are needed:"
-        "\n- With 1 private key a wallet on this Offline PC is created"
-        "\n- Use private key 2 to create a wallet on the Online PC"
-        "\n- Store key 3 on a Paper in a safe in case one of the PC's is not available anymore"
-    )
+    print("We will generate 3 private keys, to sign and send a transaction 2 keys are needed:"
+          "\n- With 1 private key a wallet on this Offline PC is created"
+          "\n- Use private key 2 to create a wallet on the Online PC"
+          "\n- Store key 3 on a Paper in a safe in case one of the PC's is not available anymore"
+          )
     key_lists = {}
     w_id = 0
     for cosigner in cosigners:
         print("\n")
         words = Mnemonic().generate(KEY_STRENGTH)
-        password = ""
-        if cosigner[2] == "password":
+        password = ''
+        if cosigner[2] == 'password':
             password = input("Please give password for cosigner '%s': " % cosigner[0])
         seed = Mnemonic().to_seed(words, password)
-        hdkey = HDKey.from_seed(
-            seed, network=NETWORK, key_type=cosigner[1], witness_type=WITNESS_TYPE
-        )
-        if cosigner[1] == "bip32":
+        hdkey = HDKey.from_seed(seed, network=NETWORK, key_type=cosigner[1], witness_type=WITNESS_TYPE)
+        if cosigner[1] == 'bip32':
             public_account = hdkey.public_master_multisig(witness_type=WITNESS_TYPE)
         else:
             public_account = hdkey
-        print(
-            "Key for cosigner '%s' generated. Please store both passphrase and password carefully!"
-            % cosigner[0]
-        )
+        print("Key for cosigner '%s' generated. Please store both passphrase and password carefully!" % cosigner[0])
         print("Passphrase: %s" % words)
-        print("Password: %s" % ("*" * len(password)))
+        print("Password: %s" % ('*' * len(password)))
         print("Share this public key below with other cosigner")
         print("Public key: %s" % public_account.wif_public())
 
@@ -77,13 +71,8 @@ if not wallet_exists(WALLET_NAME):
             if addkey not in key_lists[w[0]]:
                 key_lists[w[0]].append(addkey)
 
-    offline_wallet = Wallet.create(
-        WALLET_NAME,
-        key_lists["Offline PC"],
-        sigs_required=SIGNATURES_REQUIRED,
-        witness_type=WITNESS_TYPE,
-        network=NETWORK,
-    )
+    offline_wallet = Wallet.create(WALLET_NAME, key_lists['Offline PC'], sigs_required=SIGNATURES_REQUIRED,
+                                     witness_type=WITNESS_TYPE, network=NETWORK)
     offline_wallet.new_key()
 
     print("\n\nA multisig wallet has been created on this system")
@@ -94,58 +83,41 @@ if not wallet_exists(WALLET_NAME):
     print("from fluxwallet.keys import HDKey")
     print("")
     print("key_list = [")
-    for key in key_lists["Online PC"]:
-        if key.key_type == "single":
-            print(
-                "     HDKey('%s', key_type='single', witness_type='%s')"
-                % (key.wif_private(), WITNESS_TYPE)
-            )
+    for key in key_lists['Online PC']:
+        if key.key_type == 'single':
+            print("     HDKey('%s', key_type='single', witness_type='%s')" % (key.wif_private(), WITNESS_TYPE))
         else:
             print("     '%s'," % key.wif_private())
     print("]")
-    print(
-        "wlt = Wallet.create('%s', key_list, sigs_required=2, witness_type='%s', network='%s')"
-        % (WALLET_NAME, WITNESS_TYPE, NETWORK)
-    )
+    print("wlt = Wallet.create('%s', key_list, sigs_required=2, witness_type='%s', network='%s')" %
+          (WALLET_NAME, WITNESS_TYPE, NETWORK))
     print("wlt.get_key()")
     print("wlt.info()")
 else:
-    from fluxwallet.config.config import FW_DATABASE_DIR, fluxwallet_VERSION
-
-    online_wallet = Wallet(
-        WALLET_NAME, db_uri=FW_DATABASE_DIR + "/fluxwallet.tmp.sqlite"
-    )
+    from fluxwallet.config.config import FW_DATABASE_DIR, FLUXWALLET_VERSION
+    online_wallet = Wallet(WALLET_NAME, db_uri=FW_DATABASE_DIR + '/fluxwallet.tmp.sqlite')
     online_wallet.utxos_update()
     online_wallet.info()
     utxos = online_wallet.utxos()
     if utxos:
         print("\nNew unspent outputs found!")
-        print(
-            "Now a new transaction will be created to sweep this wallet and send bitcoins to a testnet faucet"
-        )
-        send_to_address = "n2eMqTT929pb1RDNuqEnxdaLau1rxy3efi"
+        print("Now a new transaction will be created to sweep this wallet and send bitcoins to a testnet faucet")
+        send_to_address = 'n2eMqTT929pb1RDNuqEnxdaLau1rxy3efi'
         t = online_wallet.sweep(send_to_address, min_confirms=0)
         print(t.raw_hex())
-        print(
-            "Now copy-and-paste the raw transaction hex to your Offline PC and sign it there with a second signature:"
-        )
+        print("Now copy-and-paste the raw transaction hex to your Offline PC and sign it there with a second signature:")
         print("\nfrom fluxwallet.wallets import Wallet")
         print("")
         print("wlt = Wallet('%s')" % WALLET_NAME)
-        print("utxos = ", end="")
+        print("utxos = ", end='')
         pprint(utxos)
         print("")
         print("wlt.utxos_update(utxos=utxos)")
         print("t = wlt.transaction_import_raw('%s')" % t.raw_hex())
         print("t.sign()")
         print("")
-        print(
-            "# Push the following raw transaction to the blockchain network on any online PC:"
-        )
+        print("# Push the following raw transaction to the blockchain network on any online PC:")
         print("print(t.raw_hex())")
     else:
-        print(
-            "\nPlease send funds to %s, so we can create a transaction"
-            % online_wallet.get_key().address
-        )
+        print("\nPlease send funds to %s, so we can create a transaction" % online_wallet.get_key().address)
         print("\nRestart this program when funds are send...")

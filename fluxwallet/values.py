@@ -37,10 +37,7 @@ def value_to_satoshi(value, network=None):
         value = Value(value)
     if isinstance(value, Value):
         if network and value.network != network:
-            raise ValueError(
-                "Value uses different network (%s) then supplied network: %s"
-                % (value.network.name, network)
-            )
+            raise ValueError("Value uses different network (%s) then supplied network: %s" % (value.network.name, network))
         value = value.value_sat
     return value
 
@@ -71,11 +68,7 @@ class Value:
             denominator = network.denominator
         else:
             if isinstance(denominator, str):
-                dens = [
-                    den
-                    for den, symb in NETWORK_DENOMINATORS.items()
-                    if symb == denominator
-                ]
+                dens = [den for den, symb in NETWORK_DENOMINATORS.items() if symb == denominator]
                 if dens:
                     denominator = dens[0]
             value = value * (network.denominator / denominator)
@@ -149,9 +142,7 @@ class Value:
         if not isinstance(network, Network):
             self.network = Network(network)
         if isinstance(denominator, str):
-            dens = [
-                den for den, symb in NETWORK_DENOMINATORS.items() if symb == denominator
-            ]
+            dens = [den for den, symb in NETWORK_DENOMINATORS.items() if symb == denominator]
             if dens:
                 denominator = dens[0]
         den_arg = denominator
@@ -163,24 +154,17 @@ class Value:
             den_input = 1
             if len(value_items) > 1:
                 cur_code = value_items[1]
-            network_names = [
-                n
-                for n in NETWORK_DEFINITIONS
-                if NETWORK_DEFINITIONS[n]["currency_code"].upper() == cur_code.upper()
-            ]
+            network_names = [n for n in NETWORK_DEFINITIONS if
+                             NETWORK_DEFINITIONS[n]['currency_code'].upper() == cur_code.upper()]
             if network_names:
                 self.network = Network(network_names[0])
                 self.currency = cur_code
             else:
                 for den, symb in NETWORK_DENOMINATORS.items():
-                    if len(symb) and cur_code[: len(symb)] == symb:
-                        cur_code = cur_code[len(symb) :]
-                        network_names = [
-                            n
-                            for n in NETWORK_DEFINITIONS
-                            if NETWORK_DEFINITIONS[n]["currency_code"].upper()
-                            == cur_code.upper()
-                        ]
+                    if len(symb) and cur_code[:len(symb)] == symb:
+                        cur_code = cur_code[len(symb):]
+                        network_names = [n for n in NETWORK_DEFINITIONS if
+                                         NETWORK_DEFINITIONS[n]['currency_code'].upper() == cur_code.upper()]
                         if network_names:
                             self.network = Network(network_names[0])
                             self.currency = cur_code
@@ -198,11 +182,8 @@ class Value:
         return self.str()
 
     def __repr__(self):
-        return "Value(value=%.14f, denominator=%.8f, network='%s')" % (
-            self.value,
-            self.denominator,
-            self.network.name,
-        )
+        return "Value(value=%.14f, denominator=%.8f, network='%s')" % \
+               (self.value, self.denominator, self.network.name)
 
     def __int__(self):
         return int(self.value)
@@ -250,51 +231,37 @@ class Value:
             if self.network != other.network:
                 raise ValueError("Cannot calculate with values from different networks")
             other = other.value
-        return Value(
-            (self.value + other) / self.denominator, self.denominator, self.network
-        )
+        return Value((self.value + other) / self.denominator, self.denominator, self.network)
 
     def __iadd__(self, other):
         if isinstance(other, Value):
             if self.network != other.network:
                 raise ValueError("Cannot calculate with values from different networks")
             other = other.value
-        return Value(
-            (self.value + other) / self.denominator, self.denominator, self.network
-        )
+        return Value((self.value + other) / self.denominator, self.denominator, self.network)
 
     def __isub__(self, other):
         if isinstance(other, Value):
             if self.network != other.network:
                 raise ValueError("Cannot calculate with values from different networks")
             other = other.value
-        return Value(
-            (self.value - other) / self.denominator, self.denominator, self.network
-        )
+        return Value((self.value - other) / self.denominator, self.denominator, self.network)
 
     def __sub__(self, other):
         if isinstance(other, Value):
             if self.network != other.network:
                 raise ValueError("Cannot calculate with values from different networks")
             other = other.value
-        return Value(
-            (self.value - other) / self.denominator, self.denominator, self.network
-        )
+        return Value((self.value - other) / self.denominator, self.denominator, self.network)
 
     def __mul__(self, other):
-        return Value(
-            (self.value * other) / self.denominator, self.denominator, self.network
-        )
+        return Value((self.value * other) / self.denominator, self.denominator, self.network)
 
     def __truediv__(self, other):
-        return Value(
-            (self.value / other) / self.denominator, self.denominator, self.network
-        )
+        return Value((self.value / other) / self.denominator, self.denominator, self.network)
 
     def __floordiv__(self, other):
-        return Value(
-            ((self.value / self.denominator) // other), self.denominator, self.network
-        )
+        return Value(((self.value / self.denominator) // other), self.denominator, self.network)
 
     def __round__(self, n=0):
         val = round(self.value / self.denominator, n) * self.denominator
@@ -303,7 +270,7 @@ class Value:
     def __index__(self):
         return self.value_sat
 
-    def str(self, denominator=None, decimals=None, currency_repr="code"):
+    def str(self, denominator=None, decimals=None, currency_repr='code'):
         """
         Get string representation of Value with requested denominator and number of decimals.
 
@@ -345,7 +312,7 @@ class Value:
         """
         if denominator is None:
             denominator = self.denominator
-        elif denominator == "auto":
+        elif denominator == 'auto':
             # First try denominator=1 and smallest denominator (satoshi)
             if 0.001 <= self.value < 1000:
                 denominator = 1
@@ -353,22 +320,14 @@ class Value:
                 denominator = self.network.denominator
             else:  # Try other frequently used denominators
                 for den, symb in NETWORK_DENOMINATORS.items():
-                    if symb in ["n", "fin", "da", "c", "d", "h"]:
+                    if symb in ['n', 'fin', 'da', 'c', 'd', 'h']:
                         continue
                     if 1 <= self.value / den < 1000:
                         denominator = den
         elif isinstance(denominator, str):
-            dens = [
-                den
-                for den, symb in NETWORK_DENOMINATORS.items()
-                if symb == denominator[: len(symb)] and len(symb)
-            ]
+            dens = [den for den, symb in NETWORK_DENOMINATORS.items() if symb == denominator[:len(symb)] and len(symb)]
             if len(dens) > 1:
-                dens = [
-                    den
-                    for den, symb in NETWORK_DENOMINATORS.items()
-                    if symb == denominator
-                ]
+                dens = [den for den, symb in NETWORK_DENOMINATORS.items() if symb == denominator]
             if dens:
                 denominator = dens[0]
         if denominator in NETWORK_DENOMINATORS:
@@ -384,15 +343,15 @@ class Value:
             decimals = 0
         balance = round(self.value / denominator, decimals)
         cur_code = self.network.currency_code
-        if currency_repr == "symbol":
+        if currency_repr == 'symbol':
             cur_code = self.network.currency_symbol
-        if currency_repr == "name":
+        if currency_repr == 'name':
             cur_code = self.network.currency_name_plural
-        if "sat" in den_symb and self.network.name == "bitcoin":
-            cur_code = ""
+        if 'sat' in den_symb and self.network.name == 'bitcoin':
+            cur_code = ''
         return ("%%.%df %%s%%s" % decimals) % (balance, den_symb, cur_code)
 
-    def str_unit(self, decimals=None, currency_repr="code"):
+    def str_unit(self, decimals=None, currency_repr='code'):
         """
         String representation of this Value. Wrapper for the :func:`str` method, but always uses 1 as denominator, meaning main denominator such as BTC, LTC.
 
@@ -407,7 +366,7 @@ class Value:
         """
         return self.str(1, decimals, currency_repr)
 
-    def str_auto(self, decimals=None, currency_repr="code"):
+    def str_auto(self, decimals=None, currency_repr='code'):
         """
         String representation of this Value. Wrapper for the :func:`str` method, but automatically determines the denominator depending on the value.
 
@@ -424,7 +383,7 @@ class Value:
         :return str:
         """
 
-        return self.str("auto", decimals, currency_repr)
+        return self.str('auto', decimals, currency_repr)
 
     @property
     def value_sat(self):
@@ -435,7 +394,7 @@ class Value:
         """
         return round(self.value / self.network.denominator)
 
-    def to_bytes(self, length=8, byteorder="little"):
+    def to_bytes(self, length=8, byteorder='little'):
         """
         Representation of value_sat (value in the smallest denominator: satoshi's) as bytes string. Used for script or transaction serialization.
 
@@ -451,7 +410,7 @@ class Value:
         """
         return self.value_sat.to_bytes(length, byteorder)
 
-    def to_hex(self, length=16, byteorder="little"):
+    def to_hex(self, length=16, byteorder='little'):
         """
         Representation of value_sat (value in the smallest denominator: satoshi's) as hexadecimal string.
 

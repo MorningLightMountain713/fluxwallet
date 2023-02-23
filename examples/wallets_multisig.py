@@ -12,8 +12,8 @@ from pprint import pprint
 
 from fluxwallet.wallets import *
 
-test_databasefile = os.path.join(FW_DATABASE_DIR, "fluxwallet.test.sqlite")
-test_database = "sqlite:///" + test_databasefile
+test_databasefile = os.path.join(FW_DATABASE_DIR, 'fluxwallet.test.sqlite')
+test_database = 'sqlite:///' + test_databasefile
 if os.path.isfile(test_databasefile):
     os.remove(test_databasefile)
 
@@ -22,34 +22,19 @@ if os.path.isfile(test_databasefile):
 #
 
 # Create 3 wallets with one private keys each, and 2 public keys corresponding with other wallets
-NETWORK = "fluxwallet_test"
+NETWORK = 'fluxwallet_test'
 pk1 = HDKey(network=NETWORK)
 pk2 = HDKey(network=NETWORK)
 pk3 = HDKey(network=NETWORK)
 klist = [pk1, pk2.public_master_multisig(), pk3.public_master_multisig()]
-wl1 = Wallet.create(
-    "multisig_2of3_cosigner1",
-    sigs_required=2,
-    keys=klist,
-    network=NETWORK,
-    db_uri=test_database,
-)
+wl1 = Wallet.create('multisig_2of3_cosigner1', sigs_required=2, keys=klist,
+                    network=NETWORK, db_uri=test_database)
 klist = [pk1.public_master_multisig(), pk2, pk3.public_master_multisig()]
-wl2 = Wallet.create(
-    "multisig_2of3_cosigner2",
-    sigs_required=2,
-    keys=klist,
-    network=NETWORK,
-    db_uri=test_database,
-)
+wl2 = Wallet.create('multisig_2of3_cosigner2',  sigs_required=2, keys=klist,
+                    network=NETWORK, db_uri=test_database)
 klist = [pk1.public_master_multisig(), pk2.public_master_multisig(), pk3]
-wl3 = Wallet.create(
-    "multisig_2of3_cosigner3",
-    sigs_required=2,
-    keys=klist,
-    network=NETWORK,
-    db_uri=test_database,
-)
+wl3 = Wallet.create('multisig_2of3_cosigner3', sigs_required=2, keys=klist,
+                    network=NETWORK, db_uri=test_database)
 
 # Generate a new key in each wallet, all these keys should be the same
 nk1 = wl1.new_key(cosigner_id=1)
@@ -62,8 +47,8 @@ print("Created new multisig address: ", nk1.wif)
 fee = 29348
 wl1.utxos_update()  # On fluxwallet testnet, this automatically creates an UTXO
 utxo = wl1.utxos()[0]
-output_arr = [("23Gd1mfrqgaYiPGkMm5n5UDRkCxruDAA8wo", utxo["value"] - fee)]
-input_arr = [(utxo["txid"], utxo["output_n"], utxo["key_id"], utxo["value"])]
+output_arr = [('23Gd1mfrqgaYiPGkMm5n5UDRkCxruDAA8wo', utxo['value'] - fee)]
+input_arr = [(utxo['txid'], utxo['output_n'], utxo['key_id'], utxo['value'])]
 t = wl1.transaction_create(output_arr, input_arr, fee=fee)
 
 # Now sign transaction with first wallet, should not verify yet
@@ -83,23 +68,15 @@ print("Verified (True): ", t2.verify())
 #
 
 # Create 2 cosigner multisig wallets
-NETWORK = "fluxwallet_test"
+NETWORK = 'fluxwallet_test'
 pk1 = HDKey(network=NETWORK)
 pk2 = HDKey(network=NETWORK)
-wl1 = Wallet.create(
-    "multisig_2of2_cosigner1",
-    sigs_required=2,
-    keys=[pk1, pk2.public_master_multisig()],
-    network=NETWORK,
-    db_uri=test_database,
-)
-wl2 = Wallet.create(
-    "multisig_2of2_cosigner2",
-    sigs_required=2,
-    keys=[pk1.public_master_multisig(), pk2],
-    network=NETWORK,
-    db_uri=test_database,
-)
+wl1 = Wallet.create('multisig_2of2_cosigner1', sigs_required=2,
+                    keys=[pk1, pk2.public_master_multisig()],
+                    network=NETWORK, db_uri=test_database)
+wl2 = Wallet.create('multisig_2of2_cosigner2', sigs_required=2,
+                    keys=[pk1.public_master_multisig(), pk2],
+                    network=NETWORK, db_uri=test_database)
 nk1 = wl1.new_key()
 nk2 = wl2.new_key(cosigner_id=0)
 
@@ -107,9 +84,7 @@ nk2 = wl2.new_key(cosigner_id=0)
 wl1.utxos_update()
 utxos = wl1.utxos()
 if not utxos:
-    print(
-        "Deposit testnet bitcoin to this address to create transaction: ", nk1.address
-    )
+    print("Deposit testnet bitcoin to this address to create transaction: ", nk1.address)
 else:
     print("Utxo's found, now sweep wallet")
     res = wl1.sweep(wl1.new_key().address, min_confirms=0)
@@ -126,32 +101,15 @@ else:
 # Multisig wallet using single keys for cosigner wallet instead of BIP32 type key structures
 #
 
-NETWORK = "fluxwallet_test"
-pk1 = HDKey(
-    "YXscyqNJ5YK411nwB33KeVkhSVjwwUkSG9xG3hkaoQFEbTwNJSrNTfni3aSSYiKtPeUPrFLwDsqHwZjNXhYm2DLEkQoaoikHoK2emrHv"
-    "mqSEZrKP",
-    network=NETWORK,
-)
-pk2 = HDKey(
-    "YXscyqNJ5YK411nwB3kXiApMaJySYss8sMM9FYgXMtmQKmDTF9yiu7yBNKnVjE8WdVVvuhxLqS6kHvW2MPHKmYzbzEHQsDXXAZuu1rCs"
-    "Hcp7rrJx",
-    network=NETWORK,
-    key_type="single",
-)
-wl1 = Wallet.create(
-    "multisig_single_keys1",
-    [pk1, pk2.public()],
-    sigs_required=2,
-    network=NETWORK,
-    db_uri=test_database,
-)
-wl2 = Wallet.create(
-    "multisig_single_keys2",
-    [pk1.public_master_multisig(), pk2],
-    sigs_required=2,
-    network=NETWORK,
-    db_uri=test_database,
-)
+NETWORK = 'fluxwallet_test'
+pk1 = HDKey('YXscyqNJ5YK411nwB33KeVkhSVjwwUkSG9xG3hkaoQFEbTwNJSrNTfni3aSSYiKtPeUPrFLwDsqHwZjNXhYm2DLEkQoaoikHoK2emrHv'
+            'mqSEZrKP', network=NETWORK)
+pk2 = HDKey('YXscyqNJ5YK411nwB3kXiApMaJySYss8sMM9FYgXMtmQKmDTF9yiu7yBNKnVjE8WdVVvuhxLqS6kHvW2MPHKmYzbzEHQsDXXAZuu1rCs'
+            'Hcp7rrJx', network=NETWORK, key_type='single')
+wl1 = Wallet.create('multisig_single_keys1', [pk1, pk2.public()],
+                    sigs_required=2, network=NETWORK, db_uri=test_database)
+wl2 = Wallet.create('multisig_single_keys2', [pk1.public_master_multisig(), pk2],
+                    sigs_required=2, network=NETWORK, db_uri=test_database)
 
 # Create multisig keys and update UTXO's
 wl1.new_key(cosigner_id=0)
@@ -160,18 +118,11 @@ wl1.utxos_update()
 wl2.utxos_update()
 
 # Create transaction and sign with both wallets, return address should be the same
-t = wl2.transaction_create([("23Gd1mfrqgaYiPGkMm5n5UDRkCxruDAA8wo", 5000000)])
+t = wl2.transaction_create([('23Gd1mfrqgaYiPGkMm5n5UDRkCxruDAA8wo', 5000000)])
 t.sign()
 t2 = wl1.transaction_import(t)
 t2.sign()
-print(
-    "%s == %s: %s"
-    % (
-        t.outputs[1].address,
-        t2.outputs[1].address,
-        t.outputs[1].address == t2.outputs[1].address,
-    )
-)
+print("%s == %s: %s" % (t.outputs[1].address, t2.outputs[1].address, t.outputs[1].address == t2.outputs[1].address))
 print("Verified (True): ", t2.verify())
 
 
@@ -179,19 +130,12 @@ print("Verified (True): ", t2.verify())
 # Example of a multisig 2-of-3 segwit wallet
 #
 
-NETWORK = "bitcoin"
-pk1 = HDKey(network=NETWORK, witness_type="segwit")  # Private key for this wallet
-pk2 = HDKey(network=NETWORK, witness_type="segwit")  # Wallet of cosigner
-pk3 = HDKey(
-    network=NETWORK, witness_type="segwit", key_type="single"
-)  # Backup key on paper
+NETWORK = 'bitcoin'
+pk1 = HDKey(network=NETWORK, witness_type='segwit')                     # Private key for this wallet
+pk2 = HDKey(network=NETWORK, witness_type='segwit')                     # Wallet of cosigner
+pk3 = HDKey(network=NETWORK, witness_type='segwit', key_type='single')  # Backup key on paper
 
-w = Wallet.create(
-    "Segwit-multisig-2-of-3-wallet",
-    [pk1, pk2.public_master_multisig(), pk3.public()],
-    sigs_required=2,
-    network=NETWORK,
-    db_uri=test_database,
-)
+w = Wallet.create('Segwit-multisig-2-of-3-wallet', [pk1, pk2.public_master_multisig(), pk3.public()],
+                  sigs_required=2, network=NETWORK, db_uri=test_database)
 
 w.info()

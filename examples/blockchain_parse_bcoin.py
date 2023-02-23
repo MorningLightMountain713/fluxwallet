@@ -17,7 +17,7 @@ from fluxwallet.services.services import Service
 start_time = time.time()
 
 
-srv = Service(providers=["bcoin"])
+srv = Service(providers=['bcoin'])
 
 # Get latest block
 # blocks = [srv.blockcount()]
@@ -42,14 +42,11 @@ for blockid in blocks:
     count_segwit = 0
 
     for t in block.transactions[:MAX_TRANSACTIONS]:
-        print(
-            "=== Deserialize transaction %s (#%d, segwit %d) ==="
-            % (t.txid, count, count_segwit)
-        )
+        print("=== Deserialize transaction %s (#%d, segwit %d) ===" % (t.txid, count, count_segwit))
         count += 1
         t.verify()
         # t.info()
-        if t.witness_type != "legacy":
+        if t.witness_type != 'legacy':
             count_segwit += 1
         if not t.verified:
             print(50 * "!")

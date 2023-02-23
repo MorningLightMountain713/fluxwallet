@@ -23,33 +23,32 @@ from datetime import datetime
 
 from fluxwallet.keys import Address
 from fluxwallet.services.baseclient import BaseClient, ClientError
-from fluxwallet.transactions.transaction import TransactionBuilder
+from fluxwallet.transactions import Transaction
 
-PROVIDERNAME = "bitflyer"
+PROVIDERNAME = 'bitflyer'
 
 
 _logger = logging.getLogger(__name__)
 
 
 class BitflyerClient(BaseClient):
-    def __init__(self, network, base_url, denominator, *args):
-        super(self.__class__, self).__init__(
-            network, PROVIDERNAME, base_url, denominator, *args
-        )
 
-    def compose_request(self, function, parameter="", parameter2="", method="get"):
+    def __init__(self, network, base_url, denominator, *args):
+        super(self.__class__, self).__init__(network, PROVIDERNAME, base_url, denominator, *args)
+
+    def compose_request(self, function, parameter='', parameter2='', method='get'):
         url_path = function
         if parameter:
-            url_path += "/" + str(parameter)
+            url_path += '/' + str(parameter)
         if parameter2:
-            url_path += "/" + str(parameter2)
+            url_path += '/' + str(parameter2)
         return self.request(url_path, method=method)
 
     def getbalance(self, addresslist):
         balance = 0
         for address in addresslist:
-            res = self.compose_request("address", address)
-            balance += res["unconfirmed_balance"]
+            res = self.compose_request('address', address)
+            balance += res['unconfirmed_balance']
         return balance
 
     # def getutxos(self, address, after_txid='', limit=MAX_TRANSACTIONS):
@@ -58,7 +57,7 @@ class BitflyerClient(BaseClient):
     #     tx = self.compose_request('tx', txid)
     #     # tx_date = None if not tx.get('received_date') else datetime.strptime(tx['received_date'],
     #     #                                                                      "%Y-%m-%dT%H:%M:%S.%f")
-    #     t = TransactionBuilder(locktime=tx['lock_time'], version=tx['version'], network=self.network,
+    #     t = Transaction(locktime=tx['lock_time'], version=tx['version'], network=self.network,
     #                     # fee=tx['fees'], size=tx['size'], txid=tx['tx_hash'], date=tx_date,
     #                     confirmations=tx['confirmed'], block_height=tx['block_height'],
     #                     status='confirmed' if tx['confirmed'] else 'unconfirmed')
@@ -83,8 +82,8 @@ class BitflyerClient(BaseClient):
     # def estimatefee(self, blocks):
 
     def blockcount(self):
-        res = self.compose_request("block", "latest")
-        return res["height"]
+        res = self.compose_request('block', 'latest')
+        return res['height']
 
     # def mempool(self, txid):
 

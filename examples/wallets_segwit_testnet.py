@@ -27,44 +27,31 @@ from fluxwallet.wallets import *
 
 tx_fee = 500
 tx_amount = 1000
-wif = "tprv8ZgxMBicQKsPdd7kWYnxC5BTucY6fESWSA9tWwtKiSpasvL1WDbtHNEU8sZDTWcoxG2qYzBA5HFWzR2NoxgG2MTyR8PeCry266DbmjF8pT4"
-wif2 = "tprv8ZgxMBicQKsPe2Fpzm7zK6WsUqcYGZsZe3vwvQGLEqe8eunrxJXXxaw3pF283uQ9J7EhTVazDhKVquwk8a5K1rSx3T9qZJiNHkzJz3sRrWd"
+wif = 'tprv8ZgxMBicQKsPdd7kWYnxC5BTucY6fESWSA9tWwtKiSpasvL1WDbtHNEU8sZDTWcoxG2qYzBA5HFWzR2NoxgG2MTyR8PeCry266DbmjF8pT4'
+wif2 = 'tprv8ZgxMBicQKsPe2Fpzm7zK6WsUqcYGZsZe3vwvQGLEqe8eunrxJXXxaw3pF283uQ9J7EhTVazDhKVquwk8a5K1rSx3T9qZJiNHkzJz3sRrWd'
 
 #
 # CREATE WALLETS
 #
 
 # Segwit P2SH-P2WPKH Wallet
-w1 = wallet_create_or_open(
-    "segwit_testnet_p2sh_p2wpkh",
-    keys=wif,
-    witness_type="p2sh-segwit",
-    network="testnet",
-)
+w1 = wallet_create_or_open('segwit_testnet_p2sh_p2wpkh', keys=wif, witness_type='p2sh-segwit', network='testnet')
 w1_key = w1.get_key()
 
 # Segwit Native P2WPKH Wallet
-w2 = wallet_create_or_open(
-    "segwit_testnet_p2wpkh", keys=wif, witness_type="segwit", network="testnet"
-)
+w2 = wallet_create_or_open('segwit_testnet_p2wpkh', keys=wif, witness_type='segwit', network='testnet')
 w2_key = w2.get_key()
 
 # Segwit Native P2WSH Wallet
-w3 = wallet_create_or_open(
-    "segwit_testnet_p2wsh",
-    keys=[wif, HDKey(wif2).public_master_multisig(witness_type="segwit").public()],
-    witness_type="segwit",
-    network="testnet",
-)
+w3 = wallet_create_or_open('segwit_testnet_p2wsh',
+                           keys=[wif, HDKey(wif2).public_master_multisig(witness_type='segwit').public()],
+                           witness_type='segwit', network='testnet')
 w3_key = w3.get_key()
 
 # Segwit P2SH-P2WSH Wallet
-w4 = wallet_create_or_open(
-    "segwit_testnet_p2sh_p2wsh",
-    keys=[wif, HDKey(wif2).public_master_multisig(witness_type="p2sh-segwit").public()],
-    witness_type="p2sh-segwit",
-    network="testnet",
-)
+w4 = wallet_create_or_open('segwit_testnet_p2sh_p2wsh',
+                           keys=[wif, HDKey(wif2).public_master_multisig(witness_type='p2sh-segwit').public()],
+                           witness_type='p2sh-segwit', network='testnet')
 w4_key = w4.get_key()
 
 
@@ -75,17 +62,13 @@ w4_key = w4.get_key()
 w1.utxos_update()
 w1.info()
 if not w1.utxos():
-    print(
-        "No UTXO'S found, please make a test-bitcoin deposit to %s. Minimum amount needed is %d sathosi"
-        % (w1_key.address, (4 * (tx_fee + tx_amount)))
-    )
+    print("No UTXO'S found, please make a test-bitcoin deposit to %s. Minimum amount needed is %d sathosi" %
+          (w1_key.address, (4 * (tx_fee + tx_amount))))
 else:
     print("Open balance: %s" % w1.balance())
-    if w1.balance() < ((tx_fee + tx_amount) * 4):
-        print(
-            "Balance to low, please deposit at least %s to %s"
-            % (((tx_fee + tx_amount) * 4) - w1.balance(), w1_key.address)
-        )
+    if w1.balance() < ((tx_fee+tx_amount)*4):
+        print("Balance to low, please deposit at least %s to %s" %
+              (((tx_fee+tx_amount)*4)-w1.balance(), w1_key.address))
     print("Sending transaction from wallet #1 to wallet #2:")
     t = w1.send_to(w2_key.address, 4 * tx_amount, fee=tx_fee)
     t.info()

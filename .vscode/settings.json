@@ -1,4 +1,0 @@
-{
-    "python.formatting.provider": "black",
-    "window.title": "${activeEditorLong}${separator}${rootName}"
-}

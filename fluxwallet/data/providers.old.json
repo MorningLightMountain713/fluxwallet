@@ -85,7 +85,9 @@
     "api_key": "",
     "priority": 10,
     "denominator": 1,
-    "network_overrides": {"prefix_address_p2sh": "05"}
+    "network_overrides": {
+      "prefix_address_p2sh": "05"
+    }
   },
   "blockcypher.litecoin.legacy": {
     "provider": "blockcypher",
@@ -118,7 +120,9 @@
     "api_key": "",
     "priority": 10,
     "denominator": 100000000,
-    "network_overrides": {"prefix_address_p2sh": "32"}
+    "network_overrides": {
+      "prefix_address_p2sh": "32"
+    }
   },
   "cryptoid.dash": {
     "provider": "cryptoid",
@@ -151,7 +155,9 @@
     "api_key": "",
     "priority": 10,
     "denominator": 100000000,
-    "network_overrides": {"prefix_address_p2sh": "32"}
+    "network_overrides": {
+      "prefix_address_p2sh": "32"
+    }
   },
   "litecoreio.litecoin.testnet": {
     "provider": "litecoreio",
@@ -340,7 +346,7 @@
     "denominator": 100000000,
     "network_overrides": null
   },
-    "chainso.litecoin.testnet": {
+  "chainso.litecoin.testnet": {
     "provider": "chainso",
     "network": "litecoin_testnet",
     "client_class": "ChainSo",
@@ -384,8 +390,7 @@
     "denominator": 100000000,
     "network_overrides": null
   },
-  "chainso.litecoin.legacy":
-    {
+  "chainso.litecoin.legacy": {
     "provider": "chainso",
     "network": "litecoin_legacy",
     "client_class": "ChainSo",

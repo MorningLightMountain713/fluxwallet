@@ -34,15 +34,15 @@ import configparser
 from fluxwallet.main import *
 from fluxwallet.services.authproxy import AuthServiceProxy
 from fluxwallet.services.baseclient import BaseClient
-from fluxwallet.transactions.transaction import TransactionBuilder
+from fluxwallet.transactions import Transaction
 
-PROVIDERNAME = "dashd"
+PROVIDERNAME = 'dashd'
 
 _logger = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
-    def __init__(self, msg=""):
+    def __init__(self, msg=''):
         self.msg = msg
         _logger.info(msg)
 
@@ -56,7 +56,7 @@ class DashdClient(BaseClient):
     """
 
     @staticmethod
-    def from_config(configfile=None, network="dash"):
+    def from_config(configfile=None, network='dash'):
         """
         Read settings from dashd config file
 
@@ -69,51 +69,44 @@ class DashdClient(BaseClient):
         """
         config = configparser.ConfigParser(strict=False)
         if not configfile:
-            cfn = os.path.join(os.path.expanduser("~"), ".fluxwallet/dash.conf")
+            cfn = os.path.join(os.path.expanduser("~"), '.fluxwallet/dash.conf')
             if not os.path.isfile(cfn):
-                cfn = os.path.join(os.path.expanduser("~"), ".dashcore/dash.conf")
+                cfn = os.path.join(os.path.expanduser("~"), '.dashcore/dash.conf')
             if not os.path.isfile(cfn):
-                raise ConfigError(
-                    "Please install dash client and specify a path to config file if path is not "
-                    "default. Or place a config file in .fluxwallet/dash.conf to reference to "
-                    "an external server."
-                )
+                raise ConfigError("Please install dash client and specify a path to config file if path is not "
+                                  "default. Or place a config file in .fluxwallet/dash.conf to reference to "
+                                  "an external server.")
         else:
-            cfn = os.path.join(FW_DATA_DIR, "config", configfile)
+            cfn = os.path.join(FW_DATA_DIR, 'config', configfile)
             if not os.path.isfile(cfn):
                 raise ConfigError("Config file %s not found" % cfn)
-        with open(cfn, "r") as f:
-            config_string = "[rpc]\n" + f.read()
+        with open(cfn, 'r') as f:
+            config_string = '[rpc]\n' + f.read()
         config.read_string(config_string)
 
         try:
-            if int(config.get("rpc", "testnet")):
-                network = "testnet"
+            if int(config.get('rpc', 'testnet')):
+                network = 'testnet'
         except configparser.NoOptionError:
             pass
-        if config.get("rpc", "rpcpassword") == "specify_rpc_password":
+        if config.get('rpc', 'rpcpassword') == 'specify_rpc_password':
             raise ConfigError("Please update config settings in %s" % cfn)
         try:
-            port = config.get("rpc", "port")
+            port = config.get('rpc', 'port')
         except configparser.NoOptionError:
-            if network == "testnet":
+            if network == 'testnet':
                 port = 19998
             else:
                 port = 9998
-        server = "127.0.0.1"
-        if "bind" in config["rpc"]:
-            server = config.get("rpc", "bind")
-        elif "externalip" in config["rpc"]:
-            server = config.get("rpc", "externalip")
-        url = "http://%s:%s@%s:%s" % (
-            config.get("rpc", "rpcuser"),
-            config.get("rpc", "rpcpassword"),
-            server,
-            port,
-        )
+        server = '127.0.0.1'
+        if 'bind' in config['rpc']:
+            server = config.get('rpc', 'bind')
+        elif 'externalip' in config['rpc']:
+            server = config.get('rpc', 'externalip')
+        url = "http://%s:%s@%s:%s" % (config.get('rpc', 'rpcuser'), config.get('rpc', 'rpcpassword'), server, port)
         return DashdClient(network, url)
 
-    def __init__(self, network="dash", base_url="", denominator=100000000, *args):
+    def __init__(self, network='dash', base_url='', denominator=100000000, *args):
         """
         Open connection to dashcore node
 
@@ -125,50 +118,37 @@ class DashdClient(BaseClient):
         :type: str
         """
         if not base_url:
-            bdc = self.from_config("", network)
+            bdc = self.from_config('', network)
             base_url = bdc.base_url
             network = bdc.network
-        if len(base_url.split(":")) != 4:
-            raise ConfigError(
-                "Dashd connection URL must be of format 'http(s)://user:password@host:port,"
-                "current format is %s. Please set url in providers.json file" % base_url
-            )
-        if "password" in base_url:
-            raise ConfigError(
-                "Invalid password 'password' in dashd provider settings. "
-                "Please set password and url in providers.json file"
-            )
+        if len(base_url.split(':')) != 4:
+            raise ConfigError("Dashd connection URL must be of format 'http(s)://user:password@host:port,"
+                              "current format is %s. Please set url in providers.json file" % base_url)
+        if 'password' in base_url:
+            raise ConfigError("Invalid password 'password' in dashd provider settings. "
+                              "Please set password and url in providers.json file")
         _logger.info("Connect to dashd")
         self.proxy = AuthServiceProxy(base_url)
-        super(self.__class__, self).__init__(
-            network, PROVIDERNAME, base_url, denominator, *args
-        )
+        super(self.__class__, self).__init__(network, PROVIDERNAME, base_url, denominator, *args)
 
     def _parse_transaction(self, tx, block_height=None, get_input_values=True):
-        t = TransactionBuilder.parse_hex(
-            tx["hex"], strict=self.strict, network=self.network
-        )
-        t.confirmations = None if "confirmations" not in tx else tx["confirmations"]
+        t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network)
+        t.confirmations = None if 'confirmations' not in tx else tx['confirmations']
         if t.confirmations or block_height:
-            t.status = "confirmed"
+            t.status = 'confirmed'
             t.verified = True
         for i in t.inputs:
-            if i.prev_txid == b"\x00" * 32:
-                i.script_type = "coinbase"
+            if i.prev_txid == b'\x00' * 32:
+                i.script_type = 'coinbase'
                 continue
             if get_input_values:
                 txi = self.proxy.getrawtransaction(i.prev_txid.hex(), 1)
-                i.value = int(
-                    round(
-                        float(txi["vout"][i.output_n_int]["value"])
-                        / self.network.denominator
-                    )
-                )
+                i.value = int(round(float(txi['vout'][i.output_n_int]['value']) / self.network.denominator))
         for o in t.outputs:
             o.spent = None
         t.block_height = block_height
-        t.version = tx["version"].to_bytes(4, "big")
-        t.date = datetime.utcfromtimestamp(tx["blocktime"])
+        t.version = tx['version'].to_bytes(4, 'big')
+        t.date = datetime.utcfromtimestamp(tx['blocktime'])
         t.update_totals()
         return t
 
@@ -182,11 +162,14 @@ class DashdClient(BaseClient):
 
     def sendrawtransaction(self, rawtx):
         res = self.proxy.sendrawtransaction(rawtx)
-        return {"txid": res, "response_dict": res}
+        return {
+            'txid': res,
+            'response_dict': res
+        }
 
     def estimatefee(self, blocks):
         try:
-            res = self.proxy.estimatesmartfee(blocks)["feerate"]
+            res = self.proxy.estimatesmartfee(blocks)['feerate']
         except KeyError:
             res = self.proxy.estimatefee(blocks)
         return int(res * self.units)
@@ -194,27 +177,25 @@ class DashdClient(BaseClient):
     def blockcount(self):
         return self.proxy.getblockcount()
 
-    def getutxos(self, address, after_txid="", limit=MAX_TRANSACTIONS):
+    def getutxos(self, address, after_txid='', limit=MAX_TRANSACTIONS):
         txs = []
 
         txs_list = self.proxy.listunspent(0, 99999999, [address])
-        for t in sorted(txs_list, key=lambda x: x["confirmations"], reverse=True):
-            txs.append(
-                {
-                    "address": t["address"],
-                    "txid": t["txid"],
-                    "confirmations": t["confirmations"],
-                    "output_n": t["vout"],
-                    "input_n": -1,
-                    "block_height": None,
-                    "fee": None,
-                    "size": 0,
-                    "value": int(t["amount"] * self.units),
-                    "script": t["scriptPubKey"],
-                    "date": None,
-                }
-            )
-            if t["txid"] == after_txid:
+        for t in sorted(txs_list, key=lambda x: x['confirmations'], reverse=True):
+            txs.append({
+                'address': t['address'],
+                'txid': t['txid'],
+                'confirmations': t['confirmations'],
+                'output_n': t['vout'],
+                'input_n': -1,
+                'block_height': None,
+                'fee': None,
+                'size': 0,
+                'value': int(t['amount'] * self.units),
+                'script': t['scriptPubKey'],
+                'date': None,
+            })
+            if t['txid'] == after_txid:
                 txs = []
 
         return txs
@@ -228,37 +209,33 @@ class DashdClient(BaseClient):
         txs = []
         if parse_transactions:
             bd = self.proxy.getblock(blockid, 2)
-            for tx in bd["tx"][(page - 1) * limit : page * limit]:
+            for tx in bd['tx'][(page - 1) * limit:page * limit]:
                 # try:
-                tx["blocktime"] = bd["time"]
-                tx["blockhash"] = bd["hash"]
-                txs.append(
-                    self._parse_transaction(
-                        tx, block_height=bd["height"], get_input_values=False
-                    )
-                )
+                tx['blocktime'] = bd['time']
+                tx['blockhash'] = bd['hash']
+                txs.append(self._parse_transaction(tx, block_height=bd['height'], get_input_values=False))
                 # except Exception as e:
                 #     _logger.error("Could not parse tx %s with error %s" % (tx['txid'], e))
             # txs += [tx['hash'] for tx in bd['tx'][len(txs):]]
         else:
             bd = self.proxy.getblock(blockid, 1)
-            txs = bd["tx"]
+            txs = bd['tx']
 
         block = {
-            "bits": int(bd["bits"], 16),
-            "depth": bd["confirmations"],
-            "hash": bd["hash"],
-            "height": bd["height"],
-            "merkle_root": bd["merkleroot"],
-            "nonce": bd["nonce"],
-            "prev_block": bd["previousblockhash"],
-            "time": bd["time"],
-            "total_txs": bd["nTx"],
-            "txs": txs,
-            "version": bd["version"],
-            "page": page,
-            "pages": None,
-            "limit": limit,
+            'bits': int(bd['bits'], 16),
+            'depth': bd['confirmations'],
+            'hash': bd['hash'],
+            'height': bd['height'],
+            'merkle_root': bd['merkleroot'],
+            'nonce': bd['nonce'],
+            'prev_block': bd['previousblockhash'],
+            'time': bd['time'],
+            'total_txs': bd['nTx'],
+            'txs': txs,
+            'version': bd['version'],
+            'page': page,
+            'pages': None,
+            'limit': limit
         }
         return block
 
@@ -276,15 +253,15 @@ class DashdClient(BaseClient):
     def getinfo(self):
         info = self.proxy.getmininginfo()
         return {
-            "blockcount": info["blocks"],
-            "chain": info["chain"],
-            "difficulty": int(info["difficulty"]),
-            "hashrate": int(info["networkhashps"]),
-            "mempool_size": int(info["pooledtx"]),
+            'blockcount': info['blocks'],
+            'chain': info['chain'],
+            'difficulty': int(info['difficulty']),
+            'hashrate': int(info['networkhashps']),
+            'mempool_size': int(info['pooledtx']),
         }
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     #
     # SOME EXAMPLES
     #
@@ -303,19 +280,17 @@ if __name__ == "__main__":
     print("\n=== Best Block ===")
     blockhash = bdc.proxy.getbestblockhash()
     bestblock = bdc.proxy.getblock(blockhash)
-    bestblock["tx"] = "..." + str(len(bestblock["tx"])) + " transactions..."
+    bestblock['tx'] = '...' + str(len(bestblock['tx'])) + ' transactions...'
     pprint(bestblock)
 
     print("\n=== Mempool ===")
     rmp = bdc.proxy.getrawmempool()
     pprint(rmp[:25])
-    print("... truncated ...")
+    print('... truncated ...')
     print("Mempool Size %d" % len(rmp))
 
     print("\n=== Raw Transaction by txid ===")
-    t = bdc.getrawtransaction(
-        "c3d2a934ef8eb9b2291d113b330b9244c1521ef73df0a4b04c39e851112f01af"
-    )
+    t = bdc.getrawtransaction('c3d2a934ef8eb9b2291d113b330b9244c1521ef73df0a4b04c39e851112f01af')
     pprint(t)
 
     print("\n=== Current network fees ===")

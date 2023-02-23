@@ -19,23 +19,18 @@ from shutil import move
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from fluxwallet.db import Base, DbConfig, DbKey, DbKeyMultisigChildren, DbWallet
-from fluxwallet.main import FW_DATABASE_DIR, fluxwallet_VERSION, DEFAULT_DATABASE
+from fluxwallet.db import (Base, DbConfig, DbKey, DbKeyMultisigChildren,
+                           DbWallet)
+from fluxwallet.main import (FW_DATABASE_DIR, FLUXWALLET_VERSION,
+                             DEFAULT_DATABASE)
 
-print(
-    "Database should update automatically when using fluxwallet. If automatic update fails you can run this script. "
-    "!!! After everything is backuped !!!"
-)
-
+print("Database should update automatically when using fluxwallet. If automatic update fails you can run this script. "
+      "!!! After everything is backuped !!!")
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="fluxwallet Database update script")
-    parser.add_argument(
-        "--database",
-        "-d",
-        default="sqlite:///" + DEFAULT_DATABASE,
-        help="Name of specific database file to use",
-    )
+    parser = argparse.ArgumentParser(description='fluxwallet Database update script')
+    parser.add_argument('--database', '-d', default='sqlite:///' + DEFAULT_DATABASE,
+                        help="Name of specific database file to use",)
     pa = parser.parse_args()
     return pa
 
@@ -44,18 +39,14 @@ args = parse_args()
 database_file = args.database
 if not os.path.isfile(database_file):
     database_file = os.path.join(FW_DATABASE_DIR, database_file)
-database_backup_file = os.path.join(
-    FW_DATABASE_DIR,
-    "%s.backup-%s" % (database_file, datetime.now().strftime("%Y%m%d-%I:%M")),
-)
+database_backup_file = os.path.join(FW_DATABASE_DIR, "%s.backup-%s" %
+                                    (database_file, datetime.now().strftime("%Y%m%d-%I:%M")))
 
-print(
-    "\nWallet and Key data will be copied to new database. Transaction data will NOT be copied"
-)
+print("\nWallet and Key data will be copied to new database. Transaction data will NOT be copied")
 print("Updating database file: %s" % database_file)
 print("Old database will be backed up to %s" % database_backup_file)
 
-if input("Type 'y' or 'Y' to continue or any other key to cancel: ") not in ["y", "Y"]:
+if input("Type 'y' or 'Y' to continue or any other key to cancel: ") not in ['y', 'Y']:
     print("Aborted by user")
     sys.exit()
 
@@ -65,14 +56,14 @@ move(database_file, database_backup_file)
 
 try:
     # Create new database
-    engine = create_engine("sqlite:///%s" % database_file)
+    engine = create_engine('sqlite:///%s' % database_file)
     Base.metadata.create_all(engine)
 
     # Copy wallets and keys to new database
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    engine_backup = create_engine("sqlite:///%s" % database_backup_file)
+    engine_backup = create_engine('sqlite:///%s' % database_backup_file)
     Session_backup = sessionmaker(bind=engine_backup)
     session_backup = Session_backup()
 
@@ -82,21 +73,21 @@ try:
 
         # Update, rename
         try:
-            del fields["balance"]
+            del(fields['balance'])
         except:
             pass
-        if fields["scheme"] == "bip44":
-            fields["scheme"] = "bip32"
-        elif fields["scheme"] == "multisig":
-            fields["scheme"] = "bip32"
-            fields["multisig"] = True
+        if fields['scheme'] == 'bip44':
+            fields['scheme'] = 'bip32'
+        elif fields['scheme'] == 'multisig':
+            fields['scheme'] = 'bip32'
+            fields['multisig'] = True
 
         # Remove unused fields
         db_field_names = [field[0] for field in DbWallet.__table__.columns.items()]
         fields_copy = deepcopy(fields)
         for f in fields_copy:
             if f not in db_field_names:
-                del fields[f]
+                del(fields[f])
 
         session.add(DbWallet(**fields))
     session.commit()
@@ -106,21 +97,21 @@ try:
         fields = dict(key)
 
         # Update for 'key' field
-        if "key" in fields:
-            if fields["is_private"]:
-                fields["private"] = fields["key"]
+        if 'key' in fields:
+            if fields['is_private']:
+                fields['private'] = fields['key']
             else:
-                fields["public"] = fields["key"]
-            del fields["key"]
+                fields['public'] = fields['key']
+            del(fields['key'])
 
         # Remove unused fields
         db_field_names = [field[0] for field in DbKey.__table__.columns.items()]
         fields_copy = deepcopy(fields)
         for f in fields_copy:
             if f not in db_field_names:
-                del fields[f]
+                del(fields[f])
 
-        fields["used"] = False  # To force rescan of all keys
+        fields['used'] = False  # To force rescan of all keys
         session.add(DbKey(**fields))
     session.commit()
 
@@ -130,17 +121,13 @@ try:
         session.add(DbKeyMultisigChildren(**fields))
     session.commit()
 
-    session.query(DbConfig).filter(DbConfig.variable == "version").update(
-        {DbConfig.value: fluxwallet_VERSION}
-    )
-    session.add(DbConfig(variable="version", value=fluxwallet_VERSION))
-    session.add(DbConfig(variable="upgrade_date", value=str(datetime.now())))
+    session.query(DbConfig).filter(DbConfig.variable == 'version').update({DbConfig.value: FLUXWALLET_VERSION})
+    session.add(DbConfig(variable='version', value=FLUXWALLET_VERSION))
+    session.add(DbConfig(variable='upgrade_date', value=str(datetime.now())))
     session.commit()
 
-    print(
-        "Database %s has been updated, backup of old database has been created at %s"
-        % (database_file, database_backup_file)
-    )
+    print("Database %s has been updated, backup of old database has been created at %s" %
+          (database_file, database_backup_file))
 
 except Exception as e:
     # If ANYTHING goes wrong move back to old database

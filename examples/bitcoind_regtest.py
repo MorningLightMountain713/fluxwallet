@@ -11,7 +11,7 @@ from pprint import pprint
 
 from fluxwallet.services.bitcoind import *
 
-bdc = BitcoindClient(base_url="http://rpcuser:pwd@localhost:18444")
+bdc = BitcoindClient(base_url='http://rpcuser:pwd@localhost:18444')
 
 print("Current blockheight is %d" % bdc.proxy.getblockcount())
 address = bdc.proxy.getnewaddress()

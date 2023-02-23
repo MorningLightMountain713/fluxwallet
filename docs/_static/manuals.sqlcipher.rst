@@ -28,4 +28,3 @@ If you look at the contents of the SQLite database you can see it is encrypted.
 
     $ cat ~/.fluxwallet/database/FW_encrypted.db
     <outputs unreadable random garbage>
-

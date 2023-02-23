@@ -256,17 +256,6 @@
     "denominator": 100000000,
     "network_overrides": null
   },
-  "flux": {
-    "provider": "runonflux",
-    "network": "flux",
-    "client_class": "FluxClient",
-    "provider_coin_id": "",
-    "url": "https://api.runonflux.io/",
-    "api_key": "",
-    "priority": 10,
-    "denominator": 100000000,
-    "network_overrides": null
-  },
   "blockstream.testnet": {
     "provider": "blockstream",
     "network": "testnet",
@@ -438,6 +427,17 @@
     "client_class": "BlocksmurferClient",
     "provider_coin_id": "",
     "url": "https://harari.blocksmurfer.io/api/v1/tbtc/",
+    "api_key": "",
+    "priority": 10,
+    "denominator": 100000000,
+    "network_overrides": null
+  },
+  "flux": {
+    "provider": "runonflux",
+    "network": "flux",
+    "client_class": "FluxClient",
+    "provider_coin_id": "",
+    "url": "https://api.runonflux.io/",
     "api_key": "",
     "priority": 10,
     "denominator": 100000000,

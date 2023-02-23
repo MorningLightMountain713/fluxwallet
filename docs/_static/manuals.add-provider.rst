@@ -78,4 +78,3 @@ Example:
 
     srv = Service(providers=['blockchair'])
     print(srv.estimatefee(5))
-
