@@ -50,6 +50,10 @@ class FluxClient(BaseClient):
         if confirmations:
             status = "confirmed"
         witness_type = "legacy"
+        from rich.pretty import pprint
+
+        print("TX FROM API")
+        pprint(tx)
 
         t = Transaction(
             locktime=tx["locktime"],
@@ -83,7 +87,7 @@ class FluxClient(BaseClient):
                 sequence=ti["sequence"],
                 strict=True,
             )
-            index_n += 11
+            index_n += 1
         for to in tx["vout"]:
             strict = True
             try:
@@ -151,7 +155,7 @@ class FluxClient(BaseClient):
                     "block_height": int(utxo["height"]),
                     # "fee": None,
                     # "size": 0,
-                    "value": int(round(utxo["satoshis"], 0)),
+                    "value": utxo["satoshis"],
                     "script": utxo["scriptPubKey"],
                 }
             )

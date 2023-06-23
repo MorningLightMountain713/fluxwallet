@@ -29,9 +29,6 @@ SIGHASH_SINGLE = 3
 SIGHASH_ANYONECANPAY = 0x80
 
 
-
-
-
 def write_compact_size(n, allow_u64=False):
     assert allow_u64 or n <= MAX_COMPACT_SIZE
     if n < 253:
@@ -180,7 +177,7 @@ class SaplingTx(object):
             self.nVersionGroupId = SAPLING_VERSION_GROUP_ID
             self.nVersion = SAPLING_TX_VERSION
         else:
-            raise Exception("Unsupported version")
+            raise Exception(f"Version: {version} not supported for SaplingTx")
 
         self.vin = []
         for tx in vin:
@@ -265,7 +262,6 @@ class SaplingTx(object):
             resp += f"{k}: {v}\n"
         return resp
 
-
     def version_bytes(self):
         return self.nVersion | (1 << 31 if self.fOverwintered else 0)
 
@@ -276,7 +272,6 @@ class SaplingTx(object):
             digest.update(bytes(x.prevout))
         return digest.digest()
 
-
     def getHashSequence(self, person=b"ZcashSequencHash"):
         digest = blake2b(digest_size=32, person=person)
 
@@ -284,13 +279,11 @@ class SaplingTx(object):
             digest.update(struct.pack("<I", x.nSequence))
         return digest.digest()
 
-
     def getHashOutputs(self, person=b"ZcashOutputsHash"):
         digest = blake2b(digest_size=32, person=person)
         for x in self.vout:
             digest.update(bytes(x))
         return digest.digest()
-
 
     def getHashJoinSplits(self):
         digest = blake2b(digest_size=32, person=b"ZcashJSplitsHash")
@@ -298,7 +291,6 @@ class SaplingTx(object):
             digest.update(bytes(jsdesc))
         digest.update(self.joinSplitPubKey)
         return digest.digest()
-
 
     def getHashShieldedSpends(self):
         digest = blake2b(digest_size=32, person=b"ZcashSSpendsHash")
@@ -311,19 +303,23 @@ class SaplingTx(object):
             digest.update(bytes(desc.proof))
         return digest.digest()
 
-
     def getHashShieldedOutputs(self):
         digest = blake2b(digest_size=32, person=b"ZcashSOutputHash")
         for desc in self.vShieldedOutputs:
             digest.update(bytes(desc))
         return digest.digest()
 
-
-    def signature_hash(self, script_code: bytes, value: int, input_n: int, nIn: int, hash_type: str=SIGHASH_ALL) -> bytes:
+    def signature_hash(
+        self,
+        script_code: bytes,
+        value: int,
+        input_n: int,
+        nIn: int,
+        hash_type: str = SIGHASH_ALL,
+    ) -> bytes:
         consensusBranchId = 0x76B809BB  # Sapling
         if input_n == None:
             return b""
-
 
         # this is zip243
         hashPrevouts = b"\x00" * 32
