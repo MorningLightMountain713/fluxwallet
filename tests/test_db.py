@@ -25,16 +25,19 @@ from sqlalchemy.exc import OperationalError
 from fluxwallet.db import *
 from fluxwallet.db_cache import *
 from fluxwallet.services.services import Service
-from fluxwallet.wallets import Wallet, WalletError
+from fluxwallet.wallet import Wallet, WalletError
 from tests.db_0_5 import Db as DbInitOld
 
-DATABASEFILE_UNITTESTS = os.path.join(str(FW_DATABASE_DIR), 'fluxwallet.unittest.sqlite')
-DATABASEFILE_TMP = os.path.join(str(FW_DATABASE_DIR), 'fluxwallet.tmp.sqlite')
-DATABASEFILE_CACHE_TMP = os.path.join(str(FW_DATABASE_DIR), 'fluxwallet_cache.tmp.sqlite')
+DATABASEFILE_UNITTESTS = os.path.join(
+    str(FW_DATABASE_DIR), "fluxwallet.unittest.sqlite"
+)
+DATABASEFILE_TMP = os.path.join(str(FW_DATABASE_DIR), "fluxwallet.tmp.sqlite")
+DATABASEFILE_CACHE_TMP = os.path.join(
+    str(FW_DATABASE_DIR), "fluxwallet_cache.tmp.sqlite"
+)
 
 
 class TestDb(unittest.TestCase):
-
     @classmethod
     def setUpClass(cls):
         if os.path.isfile(DATABASEFILE_TMP):
@@ -55,23 +58,38 @@ class TestDb(unittest.TestCase):
     def test_database_create_drop(self):
         dbtmp = Db(DATABASEFILE_TMP)
         Wallet.create("tmpwallet", db_uri=DATABASEFILE_TMP)
-        self.assertRaisesRegexp(WalletError, "Wallet with name 'tmpwallet' already exists",
-                                Wallet.create, 'tmpwallet', db_uri=DATABASEFILE_TMP)
+        self.assertRaisesRegexp(
+            WalletError,
+            "Wallet with name 'tmpwallet' already exists",
+            Wallet.create,
+            "tmpwallet",
+            db_uri=DATABASEFILE_TMP,
+        )
         dbtmp.drop_db(yes_i_am_sure=True)
         Wallet.create("tmpwallet", db_uri=DATABASEFILE_TMP)
 
     def test_database_cache_create_drop(self):
         dbtmp = DbCache(DATABASEFILE_CACHE_TMP)
-        srv = Service(cache_uri=DATABASEFILE_CACHE_TMP, exclude_providers=['bitaps', 'bitgo'])
-        t = srv.gettransaction('68104dbd6819375e7bdf96562f89290b41598df7b002089ecdd3c8d999025b13')
+        srv = Service(
+            cache_uri=DATABASEFILE_CACHE_TMP, exclude_providers=["bitaps", "bitgo"]
+        )
+        t = srv.gettransaction(
+            "68104dbd6819375e7bdf96562f89290b41598df7b002089ecdd3c8d999025b13"
+        )
         if t:
             self.assertGreaterEqual(srv.results_cache_n, 0)
-            srv.gettransaction('68104dbd6819375e7bdf96562f89290b41598df7b002089ecdd3c8d999025b13')
+            srv.gettransaction(
+                "68104dbd6819375e7bdf96562f89290b41598df7b002089ecdd3c8d999025b13"
+            )
             self.assertGreaterEqual(srv.results_cache_n, 1)
             dbtmp.drop_db()
-            self.assertRaisesRegex(OperationalError, "", srv.gettransaction,
-                                   '68104dbd6819375e7bdf96562f89290b41598df7b002089ecdd3c8d999025b13')
+            self.assertRaisesRegex(
+                OperationalError,
+                "",
+                srv.gettransaction,
+                "68104dbd6819375e7bdf96562f89290b41598df7b002089ecdd3c8d999025b13",
+            )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

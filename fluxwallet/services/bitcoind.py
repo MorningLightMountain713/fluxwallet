@@ -24,15 +24,15 @@ from fluxwallet.main import *
 from fluxwallet.networks import Network
 from fluxwallet.services.authproxy import AuthServiceProxy
 from fluxwallet.services.baseclient import BaseClient, ClientError
-from fluxwallet.transactions import Transaction
+from fluxwallet.transactions import BitcoinTransaction
 
-PROVIDERNAME = 'bitcoind'
+PROVIDERNAME = "bitcoind"
 
 _logger = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
-    def __init__(self, msg=''):
+    def __init__(self, msg=""):
         self.msg = msg
         _logger.info(msg)
 
@@ -53,7 +53,7 @@ class BitcoindClient(BaseClient):
     """
 
     @staticmethod
-    def from_config(configfile=None, network='bitcoin'):
+    def from_config(configfile=None, network="bitcoin"):
         """
         Read settings from bitcoind config file
 
@@ -68,54 +68,65 @@ class BitcoindClient(BaseClient):
             config = configparser.ConfigParser(strict=False)
         except TypeError:
             config = configparser.ConfigParser()
-        config_fn = 'bitcoin.conf'
+        config_fn = "bitcoin.conf"
         if isinstance(network, Network):
             network = network.name
-        if network == 'testnet':
-            config_fn = 'bitcoin-testnet.conf'
+        if network == "testnet":
+            config_fn = "bitcoin-testnet.conf"
 
         cfn = None
         if not configfile:
-            config_locations = ['~/.fluxwallet', '~/.bitcoin', '~/Application Data/Bitcoin',
-                                '~/Library/Application Support/Bitcoin']
+            config_locations = [
+                "~/.fluxwallet",
+                "~/.bitcoin",
+                "~/Application Data/Bitcoin",
+                "~/Library/Application Support/Bitcoin",
+            ]
             for location in config_locations:
                 cfn = Path(location, config_fn).expanduser()
                 if cfn.exists():
                     break
         else:
-            cfn = Path(FW_DATA_DIR, 'config', configfile)
+            cfn = Path(FW_DATA_DIR, "config", configfile)
 
         if not cfn or not cfn.is_file():
-            raise ConfigError("Config file %s not found. Please install bitcoin client and specify a path to config "
-                              "file if path is not default. Or place a config file in .fluxwallet/bitcoin.conf to "
-                              "reference to an external server." % cfn)
+            raise ConfigError(
+                "Config file %s not found. Please install bitcoin client and specify a path to config "
+                "file if path is not default. Or place a config file in .fluxwallet/bitcoin.conf to "
+                "reference to an external server." % cfn
+            )
 
         try:
             config.read(cfn)
         except Exception:
             with cfn.open() as f:
-                config_string = '[rpc]\n' + f.read()
+                config_string = "[rpc]\n" + f.read()
             config.read_string(config_string)
 
-        testnet = _read_from_config(config, 'rpc', 'testnet')
+        testnet = _read_from_config(config, "rpc", "testnet")
         if testnet:
-            network = 'testnet'
-        if _read_from_config(config, 'rpc', 'rpcpassword') == 'specify_rpc_password':
+            network = "testnet"
+        if _read_from_config(config, "rpc", "rpcpassword") == "specify_rpc_password":
             raise ConfigError("Please update config settings in %s" % cfn)
-        if network == 'testnet':
+        if network == "testnet":
             port = 18332
         else:
             port = 8332
-        port = _read_from_config(config, 'rpc', 'rpcport', port)
-        server = '127.0.0.1'
-        server = _read_from_config(config, 'rpc', 'rpcconnect', server)
-        server = _read_from_config(config, 'rpc', 'bind', server)
-        server = _read_from_config(config, 'rpc', 'externalip', server)
+        port = _read_from_config(config, "rpc", "rpcport", port)
+        server = "127.0.0.1"
+        server = _read_from_config(config, "rpc", "rpcconnect", server)
+        server = _read_from_config(config, "rpc", "bind", server)
+        server = _read_from_config(config, "rpc", "externalip", server)
 
-        url = "http://%s:%s@%s:%s" % (config.get('rpc', 'rpcuser'), config.get('rpc', 'rpcpassword'), server, port)
+        url = "http://%s:%s@%s:%s" % (
+            config.get("rpc", "rpcuser"),
+            config.get("rpc", "rpcpassword"),
+            server,
+            port,
+        )
         return BitcoindClient(network, url)
 
-    def __init__(self, network='bitcoin', base_url='', denominator=100000000, *args):
+    def __init__(self, network="bitcoin", base_url="", denominator=100000000, *args):
         """
         Open connection to bitcoin node
 
@@ -129,89 +140,107 @@ class BitcoindClient(BaseClient):
         if isinstance(network, Network):
             network = network.name
         if not base_url:
-            bdc = self.from_config('', network)
+            bdc = self.from_config("", network)
             base_url = bdc.base_url
             network = bdc.network
-        if len(base_url.split(':')) != 4:
-            raise ConfigError("Bitcoind connection URL must be of format 'http(s)://user:password@host:port,"
-                              "current format is %s. Please set url in providers.json file or check bitcoin config "
-                              "file" % base_url)
-        if 'password' in base_url:
-            raise ConfigError("Invalid password in bitcoind provider settings. "
-                              "Please replace default password and set url in providers.json or bitcoin.conf file")
+        if len(base_url.split(":")) != 4:
+            raise ConfigError(
+                "Bitcoind connection URL must be of format 'http(s)://user:password@host:port,"
+                "current format is %s. Please set url in providers.json file or check bitcoin config "
+                "file" % base_url
+            )
+        if "password" in base_url:
+            raise ConfigError(
+                "Invalid password in bitcoind provider settings. "
+                "Please replace default password and set url in providers.json or bitcoin.conf file"
+            )
         _logger.info("Connect to bitcoind")
         self.proxy = AuthServiceProxy(base_url)
-        super(self.__class__, self).__init__(network, PROVIDERNAME, base_url, denominator, *args)
+        super(self.__class__, self).__init__(
+            network, PROVIDERNAME, base_url, denominator, *args
+        )
 
     def getbalance(self, addresslist):
         balance = 0
         for address in addresslist:
             res = self.proxy.getaddressinfo(address)
-            if not (res['ismine'] or res['iswatchonly']):
+            if not (res["ismine"] or res["iswatchonly"]):
                 raise ClientError(
                     "Address %s not found in bitcoind wallet, use 'importpubkey' or 'importaddress' to add "
-                    "address to wallet." % address)
+                    "address to wallet." % address
+                )
             txs_list = self.proxy.listunspent(0, 99999999, [address])
             for tx in txs_list:
-                balance += int(tx['amount'] * self.units)
+                balance += int(tx["amount"] * self.units)
         return balance
 
-    def getutxos(self, address, after_txid='', limit=MAX_TRANSACTIONS):
+    def getutxos(self, address, after_txid="", limit=MAX_TRANSACTIONS):
         utxos = []
         res = self.proxy.getaddressinfo(address)
-        if not (res['ismine'] or res['iswatchonly']):
-            raise ClientError("Address %s not found in bitcoind wallet, use 'importpubkey' or 'importaddress' to add "
-                              "address to wallet." % address)
+        if not (res["ismine"] or res["iswatchonly"]):
+            raise ClientError(
+                "Address %s not found in bitcoind wallet, use 'importpubkey' or 'importaddress' to add "
+                "address to wallet." % address
+            )
 
         txs_list = self.proxy.listunspent(0, 9999999, [address])
         blockcount = self.blockcount()
-        for tx in sorted(txs_list, key=lambda x: x['confirmations'], reverse=True):
-            utxos.append({
-                'address': tx['address'],
-                'txid': tx['txid'],
-                'confirmations': tx['confirmations'],
-                'output_n': tx['vout'],
-                'input_n': -1,
-                'block_height': blockcount - tx['confirmations'] + 1,
-                'fee': None,
-                'size': 0,
-                'value': int(tx['amount'] * self.units),
-                'script': tx['scriptPubKey'],
-                'date': None,
-            })
-            if tx['txid'] == after_txid:
+        for tx in sorted(txs_list, key=lambda x: x["confirmations"], reverse=True):
+            utxos.append(
+                {
+                    "address": tx["address"],
+                    "txid": tx["txid"],
+                    "confirmations": tx["confirmations"],
+                    "output_n": tx["vout"],
+                    "input_n": -1,
+                    "block_height": blockcount - tx["confirmations"] + 1,
+                    "fee": None,
+                    "size": 0,
+                    "value": int(tx["amount"] * self.units),
+                    "script": tx["scriptPubKey"],
+                    "date": None,
+                }
+            )
+            if tx["txid"] == after_txid:
                 utxos = []
 
         return utxos
 
     def _parse_transaction(self, tx, block_height=None, get_input_values=True):
-        t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network)
-        t.confirmations = tx.get('confirmations')
-        t.block_hash = tx.get('blockhash')
-        t.status = 'unconfirmed'
+        t = BitcoinTransaction.parse_hex(
+            tx["hex"], strict=self.strict, network=self.network
+        )
+        t.confirmations = tx.get("confirmations")
+        t.block_hash = tx.get("blockhash")
+        t.status = "unconfirmed"
         for i in t.inputs:
-            if i.prev_txid == b'\x00' * 32:
-                i.script_type = 'coinbase'
+            if i.prev_txid == b"\x00" * 32:
+                i.script_type = "coinbase"
                 continue
             if get_input_values:
                 txi = self.proxy.getrawtransaction(i.prev_txid.hex(), 1)
-                i.value = int(round(float(txi['vout'][i.output_n_int]['value']) / self.network.denominator))
+                i.value = int(
+                    round(
+                        float(txi["vout"][i.output_n_int]["value"])
+                        / self.network.denominator
+                    )
+                )
         for o in t.outputs:
             o.spent = None
 
         if not block_height and t.block_hash:
-            block_height = self.proxy.getblock(t.block_hash, 1)['height']
+            block_height = self.proxy.getblock(t.block_hash, 1)["height"]
         t.block_height = block_height
         if not t.confirmations and block_height is not None:
             if not self.latest_block:
                 self.latest_block = self.blockcount()
             t.confirmations = (self.latest_block - block_height) + 1
         if t.confirmations or block_height:
-            t.status = 'confirmed'
+            t.status = "confirmed"
             t.verified = True
-        t.version = tx['version'].to_bytes(4, 'big')
-        t.version_int = tx['version']
-        t.date = None if 'time' not in tx else datetime.utcfromtimestamp(tx['time'])
+        t.version = tx["version"].to_bytes(4, "big")
+        t.version_int = tx["version"]
+        t.date = None if "time" not in tx else datetime.utcfromtimestamp(tx["time"])
         t.update_totals()
         return t
 
@@ -219,19 +248,31 @@ class BitcoindClient(BaseClient):
         tx_raw = self.proxy.getrawtransaction(txid, 1)
         return self._parse_transaction(tx_raw)
 
-    def gettransactions(self, address, after_txid='', limit=MAX_TRANSACTIONS):
+    def gettransactions(self, address, after_txid="", limit=MAX_TRANSACTIONS):
         MAX_WALLET_TRANSACTIONS = 1000
         txs = []
         res = self.proxy.getaddressinfo(address)
-        if not (res['ismine'] or res['iswatchonly']):
-            raise ClientError("Address %s not found in bitcoind wallet, use 'importpubkey' or 'importaddress' to add "
-                              "address to wallet." % address)
+        if not (res["ismine"] or res["iswatchonly"]):
+            raise ClientError(
+                "Address %s not found in bitcoind wallet, use 'importpubkey' or 'importaddress' to add "
+                "address to wallet." % address
+            )
         txs_list = self.proxy.listtransactions("*", MAX_WALLET_TRANSACTIONS, 0, True)
         if len(txs_list) >= MAX_WALLET_TRANSACTIONS:
-            raise ClientError("Bitcoind wallet contains too many transactions %d, use other service provider for this "
-                              "wallet" % MAX_WALLET_TRANSACTIONS)
-        txids = list(set([(tx['txid'], tx['blockheight']) for tx in txs_list if tx['address'] == address]))
-        for (txid, blockheight) in txids:
+            raise ClientError(
+                "Bitcoind wallet contains too many transactions %d, use other service provider for this "
+                "wallet" % MAX_WALLET_TRANSACTIONS
+            )
+        txids = list(
+            set(
+                [
+                    (tx["txid"], tx["blockheight"])
+                    for tx in txs_list
+                    if tx["address"] == address
+                ]
+            )
+        )
+        for txid, blockheight in txids:
             tx_raw = self.proxy.getrawtransaction(txid, 1)
             t = self._parse_transaction(tx_raw, blockheight)
             txs.append(t)
@@ -245,16 +286,13 @@ class BitcoindClient(BaseClient):
 
     def sendrawtransaction(self, rawtx):
         res = self.proxy.sendrawtransaction(rawtx)
-        return {
-            'txid': res,
-            'response_dict': res
-        }
+        return {"txid": res, "response_dict": res}
 
     def estimatefee(self, blocks):
-        pres = ''
+        pres = ""
         try:
             pres = self.proxy.estimatesmartfee(blocks)
-            res = pres['feerate']
+            res = pres["feerate"]
         except KeyError as e:
             _logger.info("bitcoind error: %s, %s" % (e, pres))
             res = self.proxy.estimatefee(blocks)
@@ -263,7 +301,7 @@ class BitcoindClient(BaseClient):
     def blockcount(self):
         return self.proxy.getblockcount()
 
-    def mempool(self, txid=''):
+    def mempool(self, txid=""):
         txids = self.proxy.getrawmempool()
         if not txid:
             return txids
@@ -280,29 +318,35 @@ class BitcoindClient(BaseClient):
         txs = []
         if parse_transactions:
             bd = self.proxy.getblock(blockid, 2)
-            for tx in bd['tx'][(page - 1) * limit:page * limit]:
-                tx['time'] = bd['time']
-                tx['blockhash'] = bd['hash']
-                txs.append(self._parse_transaction(tx, block_height=bd['height'], get_input_values=True))
+            for tx in bd["tx"][(page - 1) * limit : page * limit]:
+                tx["time"] = bd["time"]
+                tx["blockhash"] = bd["hash"]
+                txs.append(
+                    self._parse_transaction(
+                        tx, block_height=bd["height"], get_input_values=True
+                    )
+                )
         else:
             bd = self.proxy.getblock(blockid, 1)
-            txs = bd['tx']
+            txs = bd["tx"]
 
         block = {
-            'bits': int(bd['bits'], 16),
-            'depth': bd['confirmations'],
-            'block_hash': bd['hash'],
-            'height': bd['height'],
-            'merkle_root': bd['merkleroot'],
-            'nonce': bd['nonce'],
-            'prev_block': None if 'previousblockhash' not in bd else bd['previousblockhash'],
-            'time': bd['time'],
-            'tx_count': bd['nTx'],
-            'txs': txs,
-            'version': bd['version'],
-            'page': page,
-            'pages': None,
-            'limit': limit
+            "bits": int(bd["bits"], 16),
+            "depth": bd["confirmations"],
+            "block_hash": bd["hash"],
+            "height": bd["height"],
+            "merkle_root": bd["merkleroot"],
+            "nonce": bd["nonce"],
+            "prev_block": None
+            if "previousblockhash" not in bd
+            else bd["previousblockhash"],
+            "time": bd["time"],
+            "tx_count": bd["nTx"],
+            "txs": txs,
+            "version": bd["version"],
+            "page": page,
+            "pages": None,
+            "limit": limit,
         }
         return block
 
@@ -320,15 +364,15 @@ class BitcoindClient(BaseClient):
     def getinfo(self):
         info = self.proxy.getmininginfo()
         return {
-            'blockcount': info['blocks'],
-            'chain': info['chain'],
-            'difficulty': int(info['difficulty']),
-            'hashrate': int(info['networkhashps']),
-            'mempool_size': int(info['pooledtx']),
+            "blockcount": info["blocks"],
+            "chain": info["chain"],
+            "difficulty": int(info["difficulty"]),
+            "hashrate": int(info["networkhashps"]),
+            "mempool_size": int(info["pooledtx"]),
         }
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     #
     # SOME EXAMPLES
     #
@@ -347,17 +391,19 @@ if __name__ == '__main__':
     print("\n=== Best Block ===")
     blockhash = bdc.proxy.getbestblockhash()
     bestblock = bdc.proxy.getblock(blockhash)
-    bestblock['tx'] = '...' + str(len(bestblock['tx'])) + ' transactions...'
+    bestblock["tx"] = "..." + str(len(bestblock["tx"])) + " transactions..."
     pprint(bestblock)
 
     print("\n=== Mempool ===")
     rmp = bdc.proxy.getrawmempool()
     pprint(rmp[:25])
-    print('... truncated ...')
+    print("... truncated ...")
     print("Mempool Size %d" % len(rmp))
 
-    print("\n=== Raw Transaction by txid ===")
-    t = bdc.getrawtransaction('7eb5332699644b753cd3f5afba9562e67612ea71ef119af1ac46559adb69ea0d')
+    print("\n=== Raw BitcoinTransaction by txid ===")
+    t = bdc.getrawtransaction(
+        "7eb5332699644b753cd3f5afba9562e67612ea71ef119af1ac46559adb69ea0d"
+    )
     pprint(t)
 
     print("\n=== Current network fees ===")

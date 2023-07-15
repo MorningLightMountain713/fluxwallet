@@ -72,3 +72,5 @@ venv/
 .venv/
 # Visual studio
 .vs
+
+dev/

@@ -33,31 +33,41 @@ from sqlalchemy import (
     Sequence,
     String,
     UniqueConstraint,
-    create_engine,
+    select,
 )
-from sqlalchemy.ext.compiler import compiles
+import time
+from sqlalchemy.event import listen
+from sqlalchemy.ext.asyncio.engine import AsyncEngine
+from sqlalchemy.ext.asyncio import (
+    AsyncAttrs,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+# from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import (
+    DeclarativeBase,
     Mapped,
-    close_all_sessions,
-    declarative_base,
+    WriteOnlyMapped,
+    mapped_column,
     relationship,
-    sessionmaker,
 )
 
 from fluxwallet.main import *
 
 _logger = logging.getLogger(__name__)
-Base = declarative_base()
 
 
-@compiles(LargeBinary, "mysql")
-def compile_largebinary_mysql(type_, compiler, **kwargs):
-    length = type_.length
-    element = "BLOB" if not length else "VARBINARY(%d)" % length
-    return element
+# @compiles(LargeBinary, "mysql")
+# def compile_largebinary_mysql(type_, compiler, **kwargs):
+#     length = type_.length
+#     element = "BLOB" if not length else "VARBINARY(%d)" % length
+#     return element
 
 
 class Db:
+    _built = False
     """
     fluxwallet Database object used by Service() and HDWallet() class. Initialize database and open session when
     creating database object.
@@ -66,117 +76,146 @@ class Db:
 
     """
 
-    def __enter__(self):
-        return self.session
+    @classmethod
+    async def start(cls):
+        self = Db()
+        if not Db._built:
+            async with self.engine.begin() as conn:
+                # await conn.execute("PRAGMA journal_mode=WAL")
+                # await conn.execute("PRAGMA synchronous=OFF")
+                # await conn.execute("PRAGMA temp_store=MEMORY")
+                await conn.run_sync(Base.metadata.create_all)
 
-    def __exit__(self, exception_type, exception_value, exception_traceback):
-        self.session.close()
+            await self._import_config_data()
+            Db._built = True
 
-    def __init__(self, db_uri=None, password=None):
+        return self
+
+    async def __aenter__(self) -> AsyncSession:
+        if not Db._built:
+            async with self.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            await self._import_config_data()
+            self._session = self.sessionmaker()
+            Db._built = True
+
+        return self._session
+
+    async def __aexit__(self, exception_type, exception_value, exception_traceback):
+        await self._session.close()
+        # return None / False will reraise
+        # print("Exiting Db Context")
+
+    def __init__(self, db_uri=None, *, sessionmaker: async_sessionmaker | None = None):
         if db_uri is None:
             db_uri = DEFAULT_DATABASE
-        self.o = urlparse(db_uri)
-        if (
-            not self.o.scheme or len(self.o.scheme) < 2
-        ):  # Dirty hack to avoid issues with urlparse on Windows confusing drive with scheme
-            if password:
-                # Warning: This requires the pysqlcipher3 module
-                db_uri = (
-                    "sqlite+pysqlcipher://:%s@/%s?cipher=aes-256-cfb&kdf_iter=64000"
-                    % (password, db_uri)
-                )
-            else:
-                db_uri = "sqlite:///%s" % db_uri
+        # self.o = urlparse(db_uri)
+        # if (
+        #     not self.o.scheme or len(self.o.scheme) < 2
+        # ):  # Dirty hack to avoid issues with urlparse on Windows confusing drive with scheme
+        #     if password:
+        #         # Warning: This requires the pysqlcipher3 module
+        #         db_uri = (
+        #             "sqlite+pysqlcipher://:%s@/%s?cipher=aes-256-cfb&kdf_iter=64000"
+        #             % (password, db_uri)
+        #         )
+        #     else:
+        db_uri = f"sqlite+aiosqlite:///{db_uri}"
 
-        if db_uri.startswith("sqlite://") and ALLOW_DATABASE_THREADS:
-            db_uri += "&" if "?" in db_uri else "?"
-            db_uri += "check_same_thread=False"
-        if self.o.scheme == "mysql":
-            db_uri += "&" if "?" in db_uri else "?"
-            db_uri += "binary_prefix=true"
-        self.engine = create_engine(db_uri, isolation_level="READ UNCOMMITTED")
+        # if db_uri.startswith("sqlite+aiosqlite://") and ALLOW_DATABASE_THREADS:
+        #     db_uri += "&" if "?" in db_uri else "?"
+        #     db_uri += "check_same_thread=False"
 
-        Session = sessionmaker(bind=self.engine)
-        Base.metadata.create_all(self.engine)
-        self._import_config_data(Session)
-        self.session = Session()
+        # if self.o.scheme == "mysql":
+        #     db_uri += "&" if "?" in db_uri else "?"
+        #     db_uri += "binary_prefix=true"
+        # self.engine = create_engine(db_uri, isolation_level="READ UNCOMMITTED")
+        self.engine = create_async_engine(db_uri, isolation_level="READ UNCOMMITTED")
+        self.sessionmaker = async_sessionmaker(self.engine, expire_on_commit=False)
 
-        _logger.info(
-            "Using database: %s://%s:%s/%s"
-            % (
-                self.o.scheme or "",
-                self.o.hostname or "",
-                self.o.port or "",
-                self.o.path or "",
-            )
-        )
+        listen(self.engine.sync_engine, "connect", self.set_sqlite_pragma)
+        # _logger.info(
+        #     "Using database: %s://%s:%s/%s"
+        #     % (
+        #         self.o.scheme or "",
+        #         self.o.hostname or "",
+        #         self.o.port or "",
+        #         self.o.path or "",
+        #     )
+        # )
         self.db_uri = db_uri
+        self._session = self.sessionmaker()
 
-        # VERIFY AND UPDATE DATABASE
-        # Just a very simple database update script, without any external libraries for now
-        #
-        version_db = (
-            self.session.query(DbConfig.value).filter_by(variable="version").scalar()
-        )
-        if version_db[:3] == "0.4" and FLUXWALLET_VERSION[:3] >= "0.5":
-            raise ValueError(
-                "Old database version found (<0.4.19). Can not convert to >0.5 version database "
-                "automatically, use updatedb.py tool to update"
-            )
-        try:
-            if FLUXWALLET_VERSION != version_db:
-                _logger.warning(
-                    "fluxwallet database (%s) is from different version then library code (%s). "
-                    "Let's try to update database." % (version_db, FLUXWALLET_VERSION)
+        # version_db = (
+        #     self.session.query(DbConfig.value).filter_by(variable="version").scalar()
+        # )
+
+    # def drop_db(self, yes_i_am_sure=False):
+    #     if yes_i_am_sure:
+    #         self.session.commit()
+    #         self.session.close_all()
+    #         close_all_sessions()
+    #         Base.metadata.drop_all(self.engine)
+
+    @property
+    def session(self) -> AsyncSession:
+        return self._session
+
+    def set_sqlite_pragma(self, dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=OFF")
+        # cursor.execute("PRAGMA mmap_size = 30000000000")
+        cursor.close()
+        # print("Engine connected")
+
+    def get_session(self):
+        start = time.perf_counter()
+        session = self.sessionmaker()
+        return session
+
+    async def _import_config_data(self):
+        print("IMPORT CONFIG")
+        async with self.sessionmaker() as session:
+            stmt = select(DbConfig.value).filter_by(variable="installation_date")
+            result = await session.execute(stmt)
+            installation_date = result.first()
+
+            if not installation_date:
+                await session.merge(
+                    DbConfig(variable="version", value=FLUXWALLET_VERSION)
                 )
-                db_update(self, version_db, FLUXWALLET_VERSION)
-        except Exception as e:
-            _logger.warning("Error when verifying version or updating database: %s" % e)
-
-    def drop_db(self, yes_i_am_sure=False):
-        if yes_i_am_sure:
-            self.session.commit()
-            self.session.close_all()
-            close_all_sessions()
-            Base.metadata.drop_all(self.engine)
-
-    @staticmethod
-    def _import_config_data(ses):
-        session = ses()
-        installation_date = (
-            session.query(DbConfig.value)
-            .filter_by(variable="installation_date")
-            .scalar()
-        )
-        if not installation_date:
-            session.merge(DbConfig(variable="version", value=FLUXWALLET_VERSION))
-            session.merge(
-                DbConfig(variable="installation_date", value=str(datetime.now()))
-            )
-            url = ""
-            try:
-                url = str(session.bind.url)
-            except Exception:
-                pass
-            session.merge(DbConfig(variable="installation_url", value=url))
-            session.commit()
-        session.close()
+                await session.merge(
+                    DbConfig(variable="installation_date", value=str(datetime.now()))
+                )
+                url = ""
+                try:
+                    url = str(session.bind.url)
+                except Exception:
+                    pass
+                await session.merge(DbConfig(variable="installation_url", value=url))
+                await session.commit()
 
 
-def add_column(engine, table_name, column):
-    """
-    Used to add new column to database with migration and update scripts
+# def add_column(engine, table_name, column):
+#     """
+#     Used to add new column to database with migration and update scripts
 
-    :param engine:
-    :param table_name:
-    :param column:
-    :return:
-    """
-    column_name = column.compile(dialect=engine.dialect)
-    column_type = column.type.compile(engine.dialect)
-    engine.execute(
-        "ALTER TABLE %s ADD COLUMN %s %s" % (table_name, column_name, column_type)
-    )
+#     :param engine:
+#     :param table_name:
+#     :param column:
+#     :return:
+#     """
+#     column_name = column.compile(dialect=engine.dialect)
+#     column_type = column.type.compile(engine.dialect)
+#     engine.execute(
+#         "ALTER TABLE %s ADD COLUMN %s %s" % (table_name, column_name, column_type)
+#     )
+
+
+class Base(AsyncAttrs, DeclarativeBase):
+    pass
 
 
 class DbAddressBook(Base):
@@ -191,6 +230,9 @@ class DbAddressBook(Base):
         primary_key=True,
         doc="Unique addressbook ID",
     )
+    # wallet_name = Column(
+    #     String(80), ForeignKey("wallets.name"), unique=True, doc="Unique wallet name"
+    # )
     name = Column(String(80), unique=True, doc="Unique address nickname")
     address = Column(
         String(255),
@@ -219,34 +261,33 @@ class DbWallet(Base):
     """
 
     __tablename__ = "wallets"
-    id = Column(
-        Integer, Sequence("wallet_id_seq"), primary_key=True, doc="Unique wallet ID"
-    )
-    name = Column(String(80), unique=True, doc="Unique wallet name")
-    owner = Column(String(50), doc="Wallet owner")
-    network_name = Column(
+    id: Mapped[int] = mapped_column(primary_key=True, doc="Unique wallet ID")
+    name: Mapped[str] = mapped_column(String(80), unique=True, doc="Unique wallet name")
+    owner: Mapped[str] = mapped_column(String(50), doc="Wallet owner")
+    network_name: Mapped[str] = mapped_column(
         String(20),
         ForeignKey("networks.name"),
         doc="Name of network, i.e.: bitcoin, litecoin",
     )
     network: Mapped[DbNetwork] = relationship(doc="Link to DbNetwork object")
-    purpose = Column(
-        Integer,
+    purpose: Mapped[int] = mapped_column(
         doc="Wallet purpose ID. BIP-44 purpose field, indicating which key-scheme is used default is 44",
     )
-    scheme = Column(String(25), doc="Key structure type, can be BIP-32 or single")
-    witness_type = Column(
+    scheme: Mapped[str] = mapped_column(
+        String(25), doc="Key structure type, can be BIP-32 or single"
+    )
+    witness_type: Mapped[str] = mapped_column(
         String(20),
         default="legacy",
         doc="Wallet witness type. Can be 'legacy', 'segwit' or 'p2sh-segwit'. Default is legacy.",
     )
-    encoding = Column(
+    encoding: Mapped[str] = mapped_column(
         String(15),
         default="base58",
         doc="Default encoding to use for address generation, i.e. base58 or bech32. Default is base58.",
     )
-    main_key_id = Column(
-        Integer,
+    main_key_id: Mapped[int] = mapped_column(
+        nullable=True,
         doc="Masterkey ID for this wallet. All other keys are derived from the masterkey in a "
         "HD wallet bip32 wallet",
     )
@@ -258,16 +299,17 @@ class DbWallet(Base):
         back_populates="wallet",
         doc="Link to transaction (DbTransactions) in this wallet",
     )
-    multisig_n_required = Column(
-        Integer,
+    multisig_n_required: Mapped[int] = mapped_column(
         default=1,
         doc="Number of required signature for multisig, "
         "only used for multisignature master key",
     )
-    sort_keys = Column(Boolean, default=False, doc="Sort keys in multisig wallet")
-    parent_id = Column(
-        Integer,
+    sort_keys: Mapped[bool] = mapped_column(
+        default=False, doc="Sort keys in multisig wallet"
+    )
+    parent_id: Mapped[int] = mapped_column(
         ForeignKey("wallets.id"),
+        nullable=True,
         doc="Wallet ID of parent wallet, used in multisig wallets",
     )
     children: Mapped[DbWallet] = relationship(
@@ -275,17 +317,16 @@ class DbWallet(Base):
         # join_depth=2,
         doc="Wallet IDs of children wallets, used in multisig wallets",
     )
-    multisig = Column(
-        Boolean,
+    multisig: Mapped[bool] = mapped_column(
         default=True,
         doc="Indicates if wallet is a multisig wallet. Default is True",
     )
-    cosigner_id = Column(
-        Integer,
+    cosigner_id: Mapped[int] = mapped_column(
+        nullable=True,
         doc="ID of cosigner of this wallet. Used in multisig wallets to differentiate between "
         "different wallets",
     )
-    key_path = Column(
+    key_path: Mapped[str] = mapped_column(
         String(100),
         doc="Key path structure used in this wallet. Key path for multisig wallet, use to create "
         "your own non-standard key path. Key path must follow the following rules: "
@@ -294,8 +335,8 @@ class DbWallet(Base):
         "* All keys must be hardened, except for change, address_index or cosigner_id "
         " Max length of path is 8 levels",
     )
-    default_account_id = Column(
-        Integer,
+    default_account_id: Mapped[int] = mapped_column(
+        nullable=True,
         doc="ID of default account for this wallet if multiple accounts are used",
     )
 
@@ -313,8 +354,8 @@ class DbWallet(Base):
         ),
     )
 
-    def __repr__(self):
-        return "<DbWallet(name='%s', network='%s'>" % (self.name, self.network_name)
+    # def __repr__(self):
+    #     return f"<DbWallet(name='{self.name}', network='{self.network_name}', parent_id='{self.parent_id}'>"
 
 
 class DbKeyMultisigChildren(Base):
@@ -398,8 +439,8 @@ class DbKey(Base):
         index=True,
         doc="Wallet ID which contains this key",
     )
-    wallet = relationship(
-        "DbWallet", back_populates="keys", doc="Related Wallet object"
+    wallet: Mapped[DbWallet] = relationship(
+        back_populates="keys", doc="Related Wallet object"
     )
     transaction_inputs = relationship(
         "DbTransactionInput",
@@ -429,6 +470,9 @@ class DbKey(Base):
     )
     latest_txid = Column(
         LargeBinary(32), doc="TxId of latest transaction downloaded from the blockchain"
+    )
+    latest_tx_index = Column(
+        Integer, doc="Index of latest transaction in sorted list of transactions"
     )
     network = relationship("DbNetwork", doc="DbNetwork object for this key")
     multisig_parents = relationship(
@@ -792,17 +836,17 @@ def db_update_version_id(db, version):
     return version
 
 
-def db_update(db, version_db, code_version=FLUXWALLET_VERSION):
-    # Database changes from version 0.5+
-    #
-    if version_db <= "0.6.3" and code_version > "0.6.3":
-        # Example: column = Column('latest_txid', String(32))
-        column = Column(
-            "witnesses",
-            LargeBinary,
-            doc="Witnesses (signatures) used in Segwit transaction inputs",
-        )
-        add_column(db.engine, "transaction_inputs", column)
-        # version_db = db_update_version_id(db, '0.6.4')
-    version_db = db_update_version_id(db, code_version)
-    return version_db
+# def db_update(db, version_db, code_version=FLUXWALLET_VERSION):
+#     # Database changes from version 0.5+
+#     #
+#     if version_db <= "0.6.3" and code_version > "0.6.3":
+#         # Example: column = Column('latest_txid', String(32))
+#         column = Column(
+#             "witnesses",
+#             LargeBinary,
+#             doc="Witnesses (signatures) used in Segwit transaction inputs",
+#         )
+#         add_column(db.engine, "transaction_inputs", column)
+#         # version_db = db_update_version_id(db, '0.6.4')
+#     version_db = db_update_version_id(db, code_version)
+#     return version_db

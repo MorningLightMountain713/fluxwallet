@@ -16,14 +16,34 @@ from pprint import pprint
 from fluxwallet.keys import HDKey
 from fluxwallet.main import FLUXWALLET_VERSION
 from fluxwallet.mnemonic import Mnemonic
-from fluxwallet.wallets import (
-    Wallet,
-    WalletError,
-    wallet_delete,
-    wallet_empty,
-    wallet_exists,
-    wallets_list,
-)
+
+# from fluxwallet.wallet import (
+#     Wallet,
+#     WalletError,
+#     wallet_delete,
+#     wallet_empty,
+#     wallet_exists,
+#     wallets_list,
+# )
+from fluxwallet.wallet.helpers import wallet_empty, wallet_exists, wallet_delete
+from fluxwallet.wallet import Wallet, WalletTransaction
+from fluxwallet.wallet.errors import WalletError
+import asyncio
+
+# import logging
+
+# from rich.logging import RichHandler
+
+# FORMAT = "%(name)s: %(message)s"
+# logging.basicConfig(
+#     level="NOTSET",
+#     format=FORMAT,
+#     datefmt="[%X]",
+#     handlers=[RichHandler(level=logging.INFO)],
+# )
+# logging.getLogger("aiosqlite").disabled = True
+# logging.getLogger("httpx").disabled = True
+# logging.getLogger("httpcore.http11").disabled = True
 
 try:
     import pyqrcode
@@ -236,7 +256,7 @@ def get_passphrase(args):
     return passphrase
 
 
-def create_wallet(wallet_name, args, db_uri):
+async def create_wallet(wallet_name, args, db_uri):
     if args.network is None:
         args.network = DEFAULT_NETWORK
     print("\nCREATE wallet '%s' (%s network)" % (wallet_name, args.network))
@@ -271,7 +291,7 @@ def create_wallet(wallet_name, args, db_uri):
                 passphrase = " ".join(passphrase)
                 seed = Mnemonic().to_seed(passphrase).hex()
                 key_list.append(HDKey.from_seed(seed, network=args.network))
-        return Wallet.create(
+        return await Wallet.create(
             wallet_name,
             key_list,
             sigs_required=sigs_required,
@@ -310,7 +330,7 @@ def create_wallet(wallet_name, args, db_uri):
         passphrase = " ".join(passphrase)
         seed = Mnemonic().to_seed(passphrase).hex()
         hdkey = HDKey.from_seed(seed, network=args.network)
-        return Wallet.create(
+        return await Wallet.create(
             wallet_name,
             hdkey,
             network=args.network,
@@ -319,7 +339,7 @@ def create_wallet(wallet_name, args, db_uri):
         )
 
 
-def create_transaction(wlt, send_args, args):
+async def create_transaction(wlt: Wallet, send_args, args):
     message = args.message if args.message else ""
 
     output_arr = []
@@ -328,13 +348,16 @@ def create_transaction(wlt, send_args, args):
             raise ValueError(
                 "Invalid number of transaction input use <address1> <amount1> ... <address_n> <amount_n>"
             )
+
         try:
             amount = int(send_args[1])
         except ValueError:
             clw_exit("Amount must be a integer value: %s" % send_args[1])
+
         output_arr.append((send_args[0], amount))
         send_args = send_args[2:]
-    return wlt.transaction_create(
+
+    return await wlt.transaction_create(
         output_arr=output_arr,
         network=args.network,
         fee=args.fee,
@@ -343,12 +366,12 @@ def create_transaction(wlt, send_args, args):
     )
 
 
-def print_transaction(wt):
+def print_transaction(wt: WalletTransaction):
     tx_dict = {
-        "network": wt.network.name,
-        "fee": wt.fee,
-        "raw": wt.raw_hex(),
-        "outputs": [{"address": o.address, "value": o.value} for o in wt.outputs],
+        "network": wt.tx.network.name,
+        "fee": wt.tx.fee,
+        "raw": wt.tx.raw_hex(),
+        "outputs": [{"address": o.address, "value": o.value} for o in wt.tx.outputs],
         "inputs": [
             {
                 "prev_hash": i.prev_txid.hex(),
@@ -364,7 +387,7 @@ def print_transaction(wt):
                 ],
                 "value": i.value,
             }
-            for i in wt.inputs
+            for i in wt.tx.inputs
         ],
     }
     pprint(tx_dict)
@@ -376,7 +399,10 @@ def clw_exit(msg=None):
     sys.exit()
 
 
-def main():
+async def main():
+    loop = asyncio.get_event_loop()
+    loop.slow_callback_duration = 40
+
     print("Command Line Wallet - fluxwallet %s\n" % FLUXWALLET_VERSION)
     # --- Parse commandline arguments ---
     args = parse_args()
@@ -410,14 +436,14 @@ def main():
 
     # Delete specified wallet, then exit
     if args.wallet_remove:
-        if not wallet_exists(args.wallet_name, db_uri=db_uri):
+        if not await wallet_exists(args.wallet_name, db_uri=db_uri):
             clw_exit("Wallet '%s' not found" % args.wallet_name)
         inp = input(
             "\nWallet '%s' with all keys and will be removed, without private key it cannot be restored."
             "\nPlease retype exact name of wallet to proceed: " % args.wallet_name
         )
         if inp == args.wallet_name:
-            if wallet_delete(args.wallet_name, force=True, db_uri=db_uri):
+            if await wallet_delete(args.wallet_name, force=True, db_uri=db_uri):
                 clw_exit("\nWallet %s has been removed" % args.wallet_name)
             else:
                 clw_exit("\nError when deleting wallet")
@@ -429,7 +455,7 @@ def main():
     if (
         args.wallet_name
         and not args.wallet_name.isdigit()
-        and not wallet_exists(args.wallet_name, db_uri=db_uri)
+        and not await wallet_exists(args.wallet_name, db_uri=db_uri)
     ):
         if (
             not args.create_from_key
@@ -439,11 +465,13 @@ def main():
             != "y"
         ):
             clw_exit("Aborted")
-        wlt = create_wallet(args.wallet_name, args, db_uri)
+        wlt = await create_wallet(args.wallet_name, args, db_uri)
+        await wlt.new_key(network="bitcoin")
+
         args.wallet_info = True
     else:
         try:
-            wlt = Wallet(args.wallet_name, db_uri=db_uri)
+            wlt = await Wallet.open(args.wallet_name, db_uri=db_uri)
             if args.passphrase is not None:
                 print("WARNING: Using passphrase option for existing wallet ignored")
             if args.create_from_key is not None:
@@ -463,12 +491,12 @@ def main():
             clw_exit("Failed to import key")
 
     if args.wallet_recreate:
-        wallet_empty(args.wallet_name)
+        await wallet_empty(args.wallet_name)
         print("Removed transactions and generated keys from this wallet")
     if args.update_utxos:
         wlt.utxos_update()
     if args.update_transactions:
-        wlt.scan(scan_gap_limit=5)
+        await wlt.scan(scan_gap_limit=5)
 
     if args.export_private:
         if wlt.scheme == "multisig":
@@ -521,7 +549,7 @@ def main():
         cosigner_id = args.receive
         if args.receive == -1:
             cosigner_id = None
-        key = wlt.get_key(network=args.network, cosigner_id=cosigner_id)
+        key = await wlt.get_key(network=args.network, cosigner_id=cosigner_id)
         print("Receive address: %s" % key.address)
         if QRCODES_AVAILABLE:
             qrcode = pyqrcode.create(key.address)
@@ -535,14 +563,14 @@ def main():
         if args.fee_per_kb:
             clw_exit("Fee-per-kb option not allowed with --create-transaction")
         try:
-            wt = create_transaction(wlt, args.create_transaction, args)
+            wt = await create_transaction(wlt, args.create_transaction, args)
         except WalletError as e:
             clw_exit("Cannot create transaction: %s" % e.msg)
         wt.sign()
         print("Transaction created")
         wt.info()
         if args.push:
-            wt.send()
+            await wt.send()
             if wt.pushed:
                 print("Transaction pushed to network. Transaction ID: %s" % wt.txid)
             else:
@@ -590,8 +618,12 @@ def main():
     if args.network == "fluxwallet_test":
         wlt.utxos_update()
     print("Wallet info for %s" % wlt.name)
-    wlt.info()
+    await wlt.info()
+
+
+def entrypoint():
+    asyncio.run(main(), debug=True)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main(), debug=True)

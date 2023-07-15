@@ -21,8 +21,12 @@
 import hashlib
 import logging
 
-from fluxwallet.encoding import (addr_bech32_to_pubkeyhash, addr_to_pubkeyhash,
-                                 double_sha256, to_bytes)
+from fluxwallet.encoding import (
+    addr_bech32_to_pubkeyhash,
+    addr_to_pubkeyhash,
+    double_sha256,
+    to_bytes,
+)
 from fluxwallet.main import MAX_TRANSACTIONS
 from fluxwallet.services.baseclient import BaseClient
 

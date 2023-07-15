@@ -13,9 +13,9 @@ from fluxwallet.keys import HDKey
 from fluxwallet.mnemonic import Mnemonic
 from fluxwallet.services.services import Service
 from fluxwallet.transactions import Transaction
-from fluxwallet.wallets import wallet_create_or_open, wallet_delete_if_exists
+from fluxwallet.wallet import wallet_create_or_open, wallet_delete_if_exists
 
-network = 'testnet'
+network = "testnet"
 # # Example wallet
 # phrase1 = 'meadow bag inquiry eyebrow exotic onion skill clerk dish hunt caught road'
 # phrase2 = 'east amount soap pause erosion invite mom finger oak still vast bacon'
@@ -31,7 +31,7 @@ network = 'testnet'
 # t.info()
 
 # Raw partially signed transaction transaction
-raw_tx = ''
+raw_tx = ""
 if not raw_tx:
     raw_tx = input("Paste raw transaction hex: ")
 
@@ -51,7 +51,7 @@ t.info()
 print("Raw signed transaction: ")
 print(t.raw_hex())
 
-if input("Try to send transaction [y/n] ") in ['y', 'Y']:
+if input("Try to send transaction [y/n] ") in ["y", "Y"]:
     srv = Service(network=network)
     res = srv.sendrawtransaction(t.raw())
     pprint(res)

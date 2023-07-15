@@ -19,10 +19,8 @@ from shutil import move
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from fluxwallet.db import (Base, DbConfig, DbKey, DbKeyMultisigChildren,
-                           DbWallet)
-from fluxwallet.main import (FW_DATABASE_DIR, FLUXWALLET_VERSION,
-                             DEFAULT_DATABASE)
+from fluxwallet.db import Base, DbConfig, DbKey, DbKeyMultisigChildren, DbWallet
+from fluxwallet.main import DEFAULT_DATABASE, FLUXWALLET_VERSION, FW_DATABASE_DIR
 
 print("Database should update automatically when using fluxwallet. If automatic update fails you can run this script. "
       "!!! After everything is backuped !!!")

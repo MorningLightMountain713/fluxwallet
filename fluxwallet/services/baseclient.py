@@ -31,7 +31,7 @@ _logger = logging.getLogger(__name__)
 
 
 class ClientError(Exception):
-    def __init__(self, msg=''):
+    def __init__(self, msg=""):
         self.msg = msg
         _logger.info(msg)
 
@@ -40,9 +40,19 @@ class ClientError(Exception):
 
 
 class BaseClient(object):
-
-    def __init__(self, network, provider, base_url, denominator, api_key='', provider_coin_id='',
-                 network_overrides=None, timeout=TIMEOUT_REQUESTS, latest_block=None, strict=True):
+    def __init__(
+        self,
+        network: str,
+        provider: str,
+        base_url: str,
+        denominator: int,
+        api_key: str = "",
+        provider_coin_id: str = "",
+        network_overrides=None,
+        timeout=TIMEOUT_REQUESTS,
+        latest_block=None,
+        strict=True,
+    ):
         try:
             self.network = network
             if not isinstance(network, Network):
@@ -62,18 +72,28 @@ class BaseClient(object):
         except Exception:
             raise ClientError("This Network is not supported by %s Client" % provider)
 
-    def request(self, url_path, variables={}, method="get", secure=True, post_data="", base = None):
+    def request(
+        self,
+        url_path: str,
+        variables: dict = {},
+        method: str = "get",
+        secure: bool = True,
+        post_data: str = "",
+        base: str | None = None,
+    ):
         url_vars = ""
-        url = self.base_url + url_path if base is None else base + url_path
+        url = f"{self.base_url}{url_path}" if base is None else f"{base}{url_path}"
+
         if not url or not self.base_url:
             raise ClientError("No (complete) url provided: %s" % url)
+
         headers = {
-            "User-Agent": "fluxwallet/%s" % FLUXWALLET_VERSION,
+            "User-Agent": f"fluxwallet/{FLUXWALLET_VERSION}",
             "Accept": "application/json",
             # 'Content-Type': 'application/json',
-            "Referrer": "https://www.github.com/1200wd/fluxwallet",
+            # "Referrer": "https://www.github.com/1200wd/fluxwallet",
         }
-        # ToDo: Check use 'headers = None' for some providers?
+
         if method == "get":
             if variables:
                 url_vars = "?" + urlencode(variables)
@@ -126,7 +146,11 @@ class BaseClient(object):
 
     def _address_convert(self, address):
         if not isinstance(address, Address):
-            return Address.parse(address, network_overrides=self.network_overrides, network=self.network.name)
+            return Address.parse(
+                address,
+                network_overrides=self.network_overrides,
+                network=self.network.name,
+            )
 
     def _addresslist_convert(self, addresslist):
         addresslistconv = []

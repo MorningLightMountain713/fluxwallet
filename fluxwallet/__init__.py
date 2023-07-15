@@ -17,13 +17,22 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-import fluxwallet.blocks
+# import fluxwallet.blocks
 import fluxwallet.encoding
 import fluxwallet.keys
 import fluxwallet.mnemonic
 import fluxwallet.tools
 import fluxwallet.transactions
 import fluxwallet.values
-import fluxwallet.wallets
+import fluxwallet.wallet
 
-__all__ = ["keys", "transactions", "wallets", "encoding", "mnemonic", "tools", "blocks", "values"]
+__all__ = [
+    "keys",
+    "transactions",
+    "wallets",
+    "encoding",
+    "mnemonic",
+    "tools",
+    "blocks",
+    "values",
+]

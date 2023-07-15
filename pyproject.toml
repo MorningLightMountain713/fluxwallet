@@ -19,7 +19,7 @@ numpy="^1.21.0"
 [tool.poetry.dev-dependencies]
 
 [tool.poetry.scripts]
-fluxwallet = "fluxwallet.tools.clw:main"
+fluxwallet = "fluxwallet.tools.clw:entrypoint"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

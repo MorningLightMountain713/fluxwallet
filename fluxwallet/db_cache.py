@@ -29,6 +29,7 @@
 #     # from psycopg2cffi import compat  # Use for PyPy support
 #     # compat.register()
 #     pass  # Only necessary when mysql or postgres is used
+from __future__ import annotations
 from urllib.parse import urlparse
 
 from sqlalchemy import (
@@ -41,34 +42,43 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     String,
-    create_engine,
+    text,
+)
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    relationship,
 )
 
+from sqlalchemy.event import listen
+from sqlalchemy.ext.asyncio.engine import AsyncEngine
+from sqlalchemy.ext.asyncio import (
+    AsyncAttrs,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+# from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import (
-    close_all_sessions,
+    DeclarativeBase,
+    Mapped,
+    WriteOnlyMapped,
+    mapped_column,
     relationship,
-    sessionmaker,
-    declarative_base,
 )
 
 from fluxwallet.main import *
 
-_logger = logging.getLogger(__name__)
-try:
-    dbcacheurl_obj = urlparse(DEFAULT_DATABASE_CACHE)
-    if dbcacheurl_obj.netloc:
-        dbcacheurl = dbcacheurl_obj.netloc.replace(dbcacheurl_obj.password, "xxx")
-    else:
-        dbcacheurl = dbcacheurl_obj.path
-    _logger.info("Default Cache Database %s" % dbcacheurl)
-except Exception:
-    _logger.warning("Default Cache Database: unable to parse URL")
-Base = declarative_base()
+# _logger = logging.getLogger(__name__)
 
 
 class WitnessTypeTransactions(enum.Enum):
     legacy = "legacy"
     segwit = "segwit"
+
+
+class Base(AsyncAttrs, DeclarativeBase):
+    pass
 
 
 class DbCache:
@@ -79,49 +89,82 @@ class DbCache:
 
     """
 
-    def __init__(self, db_uri=None):
-        self.engine = None
-        self.session = None
+    _built = False
+
+    @classmethod
+    async def start(cls, db_uri: str | None = None) -> DbCache:
+        self = DbCache()
+
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        await self.test_connection()
+        DbCache._built = True
+
+        return self
+
+    async def __aenter__(self) -> AsyncSession:
+        if not DbCache._built:
+            async with self.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            await self.test_connection()
+            DbCache._built = True
+
+        return self._session
+
+    async def __aexit__(self, exception_type, exception_value, exception_traceback):
+        # await self._session.close()
+        # return None / False will reraise
+        # print("Exiting DbCache Context")
+        ...
+
+    def __init__(
+        self,
+        db_uri: str | None = None,
+        *,
+        sessionmaker: async_sessionmaker | None = None,
+    ):
         if db_uri is None:
             db_uri = DEFAULT_DATABASE_CACHE
-        elif not db_uri:
-            return
 
-        self.o = urlparse(db_uri)
+        db_uri = f"sqlite+aiosqlite:///{db_uri}"
 
-        # if self.o.scheme == 'mysql':
-        #     raise Warning("Could not connect to cache database. MySQL databases not supported at the moment, "
-        #                   "because bytes strings are not supported as primary keys")
+        self.connection_possible = False
+        self.engine = create_async_engine(db_uri, isolation_level="READ UNCOMMITTED")
+        self.sessionmaker = async_sessionmaker(self.engine, expire_on_commit=False)
 
-        if not self.o.scheme or len(self.o.scheme) < 2:
-            db_uri = "sqlite:///%s" % db_uri
-        if db_uri.startswith("sqlite://") and ALLOW_DATABASE_THREADS:
-            db_uri += "&" if "?" in db_uri else "?"
-            db_uri += "check_same_thread=False"
-        if self.o.scheme == "mysql":
-            db_uri += "&" if "?" in db_uri else "?"
-            db_uri += "binary_prefix=true"
-        self.engine = create_engine(db_uri, isolation_level="READ UNCOMMITTED")
-
-        Session = sessionmaker(bind=self.engine)
-        Base.metadata.create_all(self.engine)
+        listen(self.engine.sync_engine, "connect", self.set_sqlite_pragma)
         self.db_uri = db_uri
-        _logger.info(
-            "Using cache database: %s://%s:%s/%s"
-            % (
-                self.o.scheme or "",
-                self.o.hostname or "",
-                self.o.port or "",
-                self.o.path or "",
-            )
-        )
-        self.session = Session()
+        self._session = self.sessionmaker()
 
-    def drop_db(self):
-        self.session.commit()
-        # self.session.close_all()
-        close_all_sessions()
-        Base.metadata.drop_all(self.engine)
+    def get_session(self):
+        return self.sessionmaker()
+
+    def set_sqlite_pragma(self, dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
+        # print("Cache Engine connected")
+
+    async def test_connection(self) -> None:
+        async with self.get_session() as session:
+            try:
+                await session.execute(text("SELECT 1"))
+                self.connection_possible = True
+            except Exception:
+                self.connection_possible = False
+
+    @property
+    def session(self) -> AsyncSession:
+        return self._session
+
+    # def drop_db(self):
+    #     self.session.commit()
+    #     # self.session.close_all()
+    #     close_all_sessions()
+    #     Base.metadata.drop_all(self.engine)
 
 
 class DbCacheTransactionNode(Base):
@@ -209,6 +252,12 @@ class DbCacheTransaction(Base):
         "(value from 1 to 5 million) or until a certain time (Timestamp in seconds after 1-jan-1970)."
         " Default value is 0 for transactions without locktime",
     )
+    expiry_height = Column(
+        Integer,
+        default=0,
+        doc="Expiry height (in blocktime) for this transactions. I.e, must be confirmed before this block height."
+        "Default is 0: no expiry (not version 4 transaction)",
+    )
     confirmations = Column(
         Integer,
         default=0,
@@ -252,6 +301,9 @@ class DbCacheAddress(Base):
     last_block = Column(Integer, doc="Number of last updated block")
     last_txid = Column(
         LargeBinary(32), doc="Transaction ID of latest transaction in cache"
+    )
+    last_tx_index = Column(
+        Integer, doc="Transaction index of latest transaction in cache"
     )
     n_utxos = Column(Integer, doc="Total number of UTXO's for this address")
     n_txs = Column(Integer, doc="Total number of transactions for this address")

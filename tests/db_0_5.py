@@ -20,9 +20,20 @@
 
 from urllib.parse import urlparse
 
-from sqlalchemy import (BigInteger, Boolean, CheckConstraint, Column, DateTime,
-                        ForeignKey, Integer, LargeBinary, Sequence, String,
-                        UniqueConstraint, create_engine)
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    Sequence,
+    String,
+    UniqueConstraint,
+    create_engine,
+)
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import close_all_sessions, relationship, sessionmaker

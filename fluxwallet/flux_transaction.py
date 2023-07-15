@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from hashlib import blake2b
 from io import BytesIO
 from typing import BinaryIO
+
 from fluxwallet.encoding import read_varbyteint
 
 MAX_MONEY = 21000000 * 100000000
@@ -52,7 +53,7 @@ class Script:
         return write_compact_size(len(self._script)) + self._script
 
     @staticmethod
-    def encode(operations: list):
+    def encode(operations: list) -> bytes:
         encoded = b""
         for op in operations:
             if isinstance(op, int):
@@ -156,7 +157,7 @@ class TxOut:
         return struct.pack("<Q", self.nValue) + bytes(self.script)
 
 
-class SaplingTx(object):
+class SaplingTx:
     def __init__(
         self,
         version,

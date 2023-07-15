@@ -17,14 +17,22 @@
 #    You should have received a copy of the GNU Affero General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+from __future__ import annotations
+import inspect
+import asyncio
 import json
 import pickle
 import random
+from abc import ABC, abstractmethod
 from datetime import datetime
 from io import BytesIO
+import time
 
 from fluxwallet.config.opcodes import *
 from fluxwallet.encoding import *
+from fluxwallet.flux_transaction import OutPoint, SaplingTx
+from fluxwallet.flux_transaction import Script as FluxScript
+from fluxwallet.flux_transaction import TxIn, TxOut
 from fluxwallet.keys import (
     Address,
     HDKey,
@@ -37,16 +45,10 @@ from fluxwallet.keys import (
 from fluxwallet.networks import Network
 from fluxwallet.scripts import Script
 from fluxwallet.values import Value, value_to_satoshi
+from typing import TYPE_CHECKING
 
-from fluxwallet.flux_transaction import (
-    TxIn,
-    TxOut,
-    OutPoint,
-    SaplingTx,
-    Script as FluxScript,
-)
-
-from abc import ABC, abstractmethod
+if TYPE_CHECKING:
+    from fluxwallet.wallet import GenericTransaction
 
 _logger = logging.getLogger(__name__)
 
@@ -62,24 +64,6 @@ class TransactionError(Exception):
 
     def __str__(self):
         return self.msg
-
-
-@deprecated  # Replaced by Script class in version 0.6
-def script_add_locktime_cltv(locktime_cltv, script):  # pragma: no cover
-    lockbytes = bytes([op.op_checklocktimeverify, op.op_drop])
-    if script and len(script) > 6:
-        if script[4:6] == lockbytes:
-            return script
-    return varstr(locktime_cltv.to_bytes(4, "little")) + lockbytes + script
-
-
-@deprecated  # Replaced by Script class in version 0.6
-def script_add_locktime_csv(locktime_csv, script):  # pragma: no cover
-    lockbytes = bytes([op.op_checklocktimeverify, op.op_drop])
-    if script and len(script) > 6:
-        if script[4:6] == lockbytes:
-            return script
-    return varstr(locktime_csv.to_bytes(4, "little")) + lockbytes + script
 
 
 def get_unlocking_script_type(
@@ -116,7 +100,9 @@ def get_unlocking_script_type(
         raise TransactionError("Unknown locking script type %s" % locking_script_type)
 
 
-def transaction_update_spents(txs, address):
+def transaction_update_spents(
+    txs: list[GenericTransaction], address: str
+) -> list[GenericTransaction]:
     """
     Update spent information for list of transactions for a specific address. This method assumes the list of
     transaction complete and up-to-date.
@@ -133,18 +119,21 @@ def transaction_update_spents(txs, address):
 
     :return list of Transaction:
     """
-    spend_list = {}
+    spend_list: dict[tuple, GenericTransaction] = {}
     for t in txs:
         for inp in t.inputs:
             if inp.address == address:
                 spend_list.update({(inp.prev_txid.hex(), inp.output_n_int): t})
+
     address_inputs = list(spend_list.keys())
     for t in txs:
         for to in t.outputs:
             if to.address != address:
                 continue
+
             spent = True if (t.txid, to.output_n) in address_inputs else False
             txs[txs.index(t)].outputs[to.output_n].spent = spent
+
             if spent:
                 spending_tx = spend_list[(t.txid, to.output_n)]
                 spending_index_n = [
@@ -152,6 +141,7 @@ def transaction_update_spents(txs, address):
                     for inp in txs[txs.index(spending_tx)].inputs
                     if inp.prev_txid.hex() == t.txid and inp.output_n_int == to.output_n
                 ][0].index_n
+
                 txs[txs.index(t)].outputs[to.output_n].spending_txid = spending_tx.txid
                 txs[txs.index(t)].outputs[
                     to.output_n
@@ -159,7 +149,7 @@ def transaction_update_spents(txs, address):
     return txs
 
 
-class Input(object):
+class Input:
     """
     Transaction Input class, used by Transaction class
 
@@ -1102,28 +1092,29 @@ class BaseTransaction(ABC):
 
     def __init__(
         self,
-        inputs=None,
-        outputs=None,
-        locktime=0,
-        version=None,
-        network=DEFAULT_NETWORK,
-        fee=None,
-        fee_per_kb=None,
-        size=None,
-        txid="",
-        txhash="",
-        date=None,
-        confirmations=None,
-        block_height=None,
-        block_hash=None,
-        input_total=0,
-        output_total=0,
-        rawtx=b"",
-        status="new",
-        coinbase=False,
-        verified=False,
-        witness_type="legacy",
-        flag=None,
+        *,
+        inputs: list[Input] | None = None,
+        outputs: list[Output] | None = None,
+        locktime: int = 0,
+        version: bytes | int | None = None,
+        network: str = DEFAULT_NETWORK,
+        fee: int | None = None,
+        fee_per_kb: int | None = None,
+        size: int | None = None,
+        txid: str = "",
+        txhash: str = "",
+        date: datetime | None = None,
+        confirmations: int | None = None,
+        block_height: int | None = None,
+        block_hash: str | None = None,
+        input_total: int = 0,
+        output_total: int = 0,
+        rawtx: bytes = b"",
+        status: str = "new",
+        coinbase: bool = False,
+        verified: bool = False,
+        witness_type: str = "legacy",
+        flag: str | None = None,
         expiry_height: int = 0,
     ):
         """
@@ -1183,29 +1174,29 @@ class BaseTransaction(ABC):
         self.expiry_height = expiry_height
 
         self.coinbase = coinbase
-        self.inputs = []
 
-        if inputs is not None:
-            for inp in inputs:
-                self.inputs.append(inp)
-            if not input_total:
-                input_total = sum([i.value for i in inputs])
-        id_list = [i.index_n for i in self.inputs]
-        if list(dict.fromkeys(id_list)) != id_list:
-            _logger.info(
-                "Identical transaction indexes (tid) found in inputs, please specify unique index. "
-                "Indexes will be automatically recreated"
-            )
-            index_n = 0
-            for inp in self.inputs:
-                inp.index_n = index_n
-                index_n += 1
-        if outputs is None:
-            self.outputs = []
-        else:
-            self.outputs = outputs
-            if not output_total:
-                output_total = sum([o.value for o in outputs])
+        self.inputs = inputs if inputs else []
+
+        if not input_total:
+            input_total = sum([i.value for i in self.inputs])
+
+        # wtaf?!? removed
+        # id_list = [i.index_n for i in self.inputs]
+        # if list(dict.fromkeys(id_list)) != id_list:
+        #     _logger.info(
+        #         "Identical transaction indexes (tid) found in inputs, please specify unique index. "
+        #         "Indexes will be automatically recreated"
+        #     )
+        #     index_n = 0
+        #     for inp in self.inputs:
+        #         inp.index_n = index_n
+        #         index_n += 1
+
+        self.outputs = outputs if outputs else []
+
+        if not output_total:
+            output_total = sum([o.value for o in self.outputs])
+
         if fee is None and output_total and input_total:
             fee = input_total - output_total
             if fee < 0 or fee == 0 and not self.coinbase:
@@ -1215,16 +1206,20 @@ class BaseTransaction(ABC):
                 )
         if not version:
             version = b"\x00\x00\x00\x01"
+
         if isinstance(version, int):
             self.version = version.to_bytes(4, "big")
             self.version_int = version
         else:
             self.version = version
             self.version_int = int.from_bytes(version, "big")
+
         self.locktime = locktime
         self.network = network
+
         if not isinstance(network, Network):
             self.network = Network(network)
+
         self.flag = flag
         self.fee = fee
         self.fee_per_kb = fee_per_kb
@@ -1252,15 +1247,6 @@ class BaseTransaction(ABC):
         if not self.txid:
             self.txid = self.signature_hash()[::-1].hex()
 
-    def __repr__(self):
-        return "<Transaction(id=%s, inputs=%d, outputs=%d, status=%s, network=%s)>" % (
-            self.txid,
-            len(self.inputs),
-            len(self.outputs),
-            self.status,
-            self.network.name,
-        )
-
     def __str__(self):
         return self.txid
 
@@ -1286,8 +1272,10 @@ class BaseTransaction(ABC):
 
         :return bool:
         """
-        if not isinstance(other, Transaction):
-            raise TransactionError("Can only compare with other Transaction object")
+        if not isinstance(other, BaseTransaction):
+            raise TransactionError(
+                f"Can only compare with other BaseTransaction object"
+            )
         return self.txid == other.txid
 
     @staticmethod
@@ -1664,6 +1652,7 @@ class BaseTransaction(ABC):
             n_total_sigs = len(self.inputs[tid].keys)
             sig_domain = [""] * n_total_sigs
 
+            # this should store on the tx
             txid = self.signature_hash(tid, witness_type=self.inputs[tid].witness_type)
             for key in tid_keys:
                 # Check if signature signs known key and is not already in list
@@ -1821,16 +1810,20 @@ class BaseTransaction(ABC):
         if index_n is None:
             index_n = len(self.inputs)
         sequence_int = sequence
+
         if isinstance(sequence, bytes):
             sequence_int = int.from_bytes(sequence, "little")
+
         if (
             self.version == b"\x00\x00\x00\x01"
             and 0 < sequence_int < SEQUENCE_LOCKTIME_DISABLE_FLAG
         ):
             self.version = b"\x00\x00\x00\x02"
             self.version_int = 2
+
         if witness_type is None:
             witness_type = self.witness_type
+
         self.inputs.append(
             Input(
                 prev_txid=prev_txid,
@@ -2186,7 +2179,7 @@ class BaseTransaction(ABC):
         pass
 
 
-class Transaction(BaseTransaction):
+class BitcoinTransaction(BaseTransaction):
     """
     Transaction Class
 
@@ -2307,7 +2300,7 @@ class Transaction(BaseTransaction):
             rawtx.seek(pos_start)
             raw_bytes = rawtx.read(raw_len)
 
-        return Transaction(
+        return BitcoinTransaction(
             inputs,
             outputs,
             locktime,
@@ -2319,6 +2312,18 @@ class Transaction(BaseTransaction):
             flag=flag,
             witness_type=witness_type,
             rawtx=raw_bytes,
+        )
+
+    def __repr__(self):
+        return (
+            "<BitcoinTransaction(id=%s, inputs=%d, outputs=%d, status=%s, network=%s)>"
+            % (
+                self.txid,
+                len(self.inputs),
+                len(self.outputs),
+                self.status,
+                self.network.name,
+            )
         )
 
     def signature_hash(
@@ -2559,6 +2564,7 @@ class FluxTransaction(BaseTransaction):
 
         :return Transaction:
         """
+
         coinbase = False
         flag = None
         witness_type = "legacy"
@@ -2637,9 +2643,10 @@ class FluxTransaction(BaseTransaction):
         if isinstance(version, bytes):
             version = int.from_bytes(version, byteorder="big")
 
+        start = time.perf_counter()
         self.sapling_tx = SaplingTx(version, nExpiryHeight=expiry_height)
-
-        super(FluxTransaction, self).__init__(*args, version=version, **kwargs)
+        start = time.perf_counter()
+        super().__init__(*args, version=version, expiry_height=expiry_height, **kwargs)
 
     def __repr__(self):
         return (

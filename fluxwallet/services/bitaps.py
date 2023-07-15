@@ -23,27 +23,36 @@ from datetime import datetime
 
 from fluxwallet.main import MAX_TRANSACTIONS
 from fluxwallet.services.baseclient import BaseClient, ClientError
-from fluxwallet.transactions import Transaction
+from fluxwallet.transactions import BitcoinTransaction
 
 _logger = logging.getLogger(__name__)
 
-PROVIDERNAME = 'bitaps'
+PROVIDERNAME = "bitaps"
 # Please note: In the Bitaps API, the first couple of Bitcoin blocks are not correctly indexed,
 # so transactions from these blocks are missing.
 
 
 class BitapsClient(BaseClient):
-
     def __init__(self, network, base_url, denominator, *args):
-        super(self.__class__, self).__init__(network, PROVIDERNAME, base_url, denominator, *args)
+        super(self.__class__, self).__init__(
+            network, PROVIDERNAME, base_url, denominator, *args
+        )
 
-    def compose_request(self, category, command='', data='', variables=None, req_type='blockchain', method='get'):
-        url_path = req_type + '/' + category
+    def compose_request(
+        self,
+        category,
+        command="",
+        data="",
+        variables=None,
+        req_type="blockchain",
+        method="get",
+    ):
+        url_path = req_type + "/" + category
         if command:
-            url_path += '/' + command
+            url_path += "/" + command
         if data:
-            if url_path[-1:] != '/':
-                url_path += '/'
+            if url_path[-1:] != "/":
+                url_path += "/"
             url_path += data
         return self.request(url_path, variables=variables, method=method)
 
@@ -63,7 +72,7 @@ class BitapsClient(BaseClient):
     #     if tx['segwit']:
     #         witness_type = 'segwit'
     #
-    #     t = Transaction(
+    #     t = BitcoinTransaction(
     #         locktime=tx['lockTime'], version=tx['version'], network=self.network, fee=tx['fee'],
     #         fee_per_kb=None if 'feeRate' not in tx else int(tx['feeRate']), size=tx['size'],
     #         txid=tx['txId'], date=date, confirmations=tx['confirmations'], block_height=block_height,
@@ -93,49 +102,61 @@ class BitapsClient(BaseClient):
     def getbalance(self, addresslist):
         balance = 0
         for address in addresslist:
-            res = self.compose_request('address', 'state', address)
-            balance += res['data']['balance']
+            res = self.compose_request("address", "state", address)
+            balance += res["data"]["balance"]
         return balance
 
-    def getutxos(self, address, after_txid='', limit=MAX_TRANSACTIONS):
+    def getutxos(self, address, after_txid="", limit=MAX_TRANSACTIONS):
         utxos = []
         page = 1
         while True:
-            variables = {'mode': 'verbose', 'limit': 50, 'page': page, 'order': 'asc'}
+            variables = {"mode": "verbose", "limit": 50, "page": page, "order": "asc"}
             try:
-                res = self.compose_request('address', 'transactions', address, variables)
-                res2 = self.compose_request('address', 'unconfirmed/transactions', address, variables)
+                res = self.compose_request(
+                    "address", "transactions", address, variables
+                )
+                res2 = self.compose_request(
+                    "address", "unconfirmed/transactions", address, variables
+                )
             except ClientError as e:
                 if "address not found" in self.resp.text:
                     return []
                 else:
                     raise ClientError(e.msg)
-            txs = res['data']['list']
-            txs += res2['data']['list']
+            txs = res["data"]["list"]
+            txs += res2["data"]["list"]
             for tx in txs:
-                for outp in tx['vOut']:
-                    utxo = tx['vOut'][outp]
-                    if 'address' not in utxo or utxo['address'] != address or utxo['spent']:
+                for outp in tx["vOut"]:
+                    utxo = tx["vOut"][outp]
+                    if (
+                        "address" not in utxo
+                        or utxo["address"] != address
+                        or utxo["spent"]
+                    ):
                         continue
                     utxos.append(
                         {
-                            'address': utxo['address'],
-                            'txid': tx['txId'],
-                            'confirmations': 0 if 'confirmations' not in tx else tx['confirmations'],
-                            'output_n': int(outp),
-                            'input_n': 0,
-                            'block_height': None if 'blockHeight' not in tx else tx['blockHeight'],
-                            'fee': None,
-                            'size': 0,
-                            'value': utxo['value'],
-                            'script': utxo['scriptPubKey'],
-                            'date': datetime.utcfromtimestamp(tx['timestamp'])
-                         }
+                            "address": utxo["address"],
+                            "txid": tx["txId"],
+                            "confirmations": 0
+                            if "confirmations" not in tx
+                            else tx["confirmations"],
+                            "output_n": int(outp),
+                            "input_n": 0,
+                            "block_height": None
+                            if "blockHeight" not in tx
+                            else tx["blockHeight"],
+                            "fee": None,
+                            "size": 0,
+                            "value": utxo["value"],
+                            "script": utxo["scriptPubKey"],
+                            "date": datetime.utcfromtimestamp(tx["timestamp"]),
+                        }
                     )
-                if tx['txId'] == after_txid:
+                if tx["txId"] == after_txid:
                     utxos = []
             page += 1
-            if page > res['data']['pages']:
+            if page > res["data"]["pages"]:
                 break
         return utxos[:limit]
 
@@ -174,7 +195,7 @@ class BitapsClient(BaseClient):
     # def estimatefee
 
     def blockcount(self):
-        return self.compose_request('block', 'last')['data']['height']
+        return self.compose_request("block", "last")["data"]["height"]
 
     # def mempool(self, txid):
     #     if txid:

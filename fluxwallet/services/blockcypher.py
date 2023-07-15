@@ -23,37 +23,40 @@ from datetime import datetime, timezone
 
 from fluxwallet.main import MAX_TRANSACTIONS
 from fluxwallet.services.baseclient import BaseClient, ClientError
-from fluxwallet.transactions import Transaction
+from fluxwallet.transactions import BitcoinTransaction
 
-PROVIDERNAME = 'blockcypher'
+PROVIDERNAME = "blockcypher"
 
 _logger = logging.getLogger(__name__)
 
 
 class BlockCypher(BaseClient):
-
     def __init__(self, network, base_url, denominator, *args):
-        super(self.__class__, self).__init__(network, PROVIDERNAME, base_url, denominator, *args)
+        super(self.__class__, self).__init__(
+            network, PROVIDERNAME, base_url, denominator, *args
+        )
 
-    def compose_request(self, function, data, parameter='', variables=None, method='get'):
-        url_path = function + '/' + data
+    def compose_request(
+        self, function, data, parameter="", variables=None, method="get"
+    ):
+        url_path = function + "/" + data
         if parameter:
-            url_path += '/' + parameter
+            url_path += "/" + parameter
         if variables is None:
             variables = {}
         if self.api_key:
-            variables.update({'token': self.api_key})
+            variables.update({"token": self.api_key})
         return self.request(url_path, variables, method)
 
     def getbalance(self, addresslist):
         addresslist = self._addresslist_convert(addresslist)
-        addresses = ';'.join([a.address for a in addresslist])
-        res = self.compose_request('addrs', addresses, 'balance')
+        addresses = ";".join([a.address for a in addresslist])
+        res = self.compose_request("addrs", addresses, "balance")
         balance = 0.0
         if not isinstance(res, list):
             res = [res]
         for rec in res:
-            balance += float(rec['final_balance'])
+            balance += float(rec["final_balance"])
         return int(balance * self.units)
 
     # Disabled: Invalid results for https://api.blockcypher.com/v1/ltc/main/addrs/LVqLipGhyQ1nWtPPc8Xp3zn6JxcU1Hi8eG?unspentOnly=1&limit=2000
@@ -67,7 +70,7 @@ class BlockCypher(BaseClient):
     #         txrefs = a.setdefault('txrefs', []) + a.get('unconfirmed_txrefs', [])
     #         if len(txrefs) > 500:
     #             _logger.warning("BlockCypher: Large number of transactions for address %s, "
-    #                             "Transaction list may be incomplete" % address)
+    #                             "BitcoinTransaction list may be incomplete" % address)
     #         for tx in txrefs:
     #             if tx['tx_hash'] == after_txid:
     #                 break
@@ -91,90 +94,107 @@ class BlockCypher(BaseClient):
     #     return transactions[::-1][:limit]
 
     def gettransaction(self, txid):
-        tx = self.compose_request('txs', txid, variables={'includeHex': 'true'})
-        t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network)
-        if tx['confirmations']:
-            t.status = 'confirmed'
-            t.date = datetime.strptime(tx['confirmed'][:19], "%Y-%m-%dT%H:%M:%S")
+        tx = self.compose_request("txs", txid, variables={"includeHex": "true"})
+        t = BitcoinTransaction.parse_hex(
+            tx["hex"], strict=self.strict, network=self.network
+        )
+        if tx["confirmations"]:
+            t.status = "confirmed"
+            t.date = datetime.strptime(tx["confirmed"][:19], "%Y-%m-%dT%H:%M:%S")
         else:
-            t.status = 'unconfirmed'
-        t.confirmations = tx['confirmations']
-        t.block_height = tx['block_height'] if tx['block_height'] > 0 else None
-        t.fee = tx['fees']
-        t.rawtx = bytes.fromhex(tx['hex'])
-        t.size = int(len(tx['hex']) / 2)
+            t.status = "unconfirmed"
+        t.confirmations = tx["confirmations"]
+        t.block_height = tx["block_height"] if tx["block_height"] > 0 else None
+        t.fee = tx["fees"]
+        t.rawtx = bytes.fromhex(tx["hex"])
+        t.size = int(len(tx["hex"]) / 2)
         t.network = self.network
         t.input_total = 0
-        if len(t.inputs) != len(tx['inputs']):
-            raise ClientError("Invalid number of inputs provided. Raw tx: %d, blockcypher: %d" %
-                              (len(t.inputs), len(tx['inputs'])))
+        if len(t.inputs) != len(tx["inputs"]):
+            raise ClientError(
+                "Invalid number of inputs provided. Raw tx: %d, blockcypher: %d"
+                % (len(t.inputs), len(tx["inputs"]))
+            )
         for n, i in enumerate(t.inputs):
-            if not t.coinbase and not (tx['inputs'][n]['output_index'] == i.output_n_int and
-                                       tx['inputs'][n]['prev_hash'] == i.prev_txid.hex()):
-                raise ClientError("Transaction inputs do not match raw transaction")
-            if 'output_value' in tx['inputs'][n]:
+            if not t.coinbase and not (
+                tx["inputs"][n]["output_index"] == i.output_n_int
+                and tx["inputs"][n]["prev_hash"] == i.prev_txid.hex()
+            ):
+                raise ClientError(
+                    "BitcoinTransaction inputs do not match raw transaction"
+                )
+            if "output_value" in tx["inputs"][n]:
                 if not t.coinbase:
-                    i.value = tx['inputs'][n]['output_value']
+                    i.value = tx["inputs"][n]["output_value"]
                 t.input_total += i.value
-        if len(t.outputs) != len(tx['outputs']):
-            raise ClientError("Invalid number of outputs provided. Raw tx: %d, blockcypher: %d" %
-                              (len(t.outputs), len(tx['outputs'])))
+        if len(t.outputs) != len(tx["outputs"]):
+            raise ClientError(
+                "Invalid number of outputs provided. Raw tx: %d, blockcypher: %d"
+                % (len(t.outputs), len(tx["outputs"]))
+            )
         for n, o in enumerate(t.outputs):
-            if 'spent_by' in tx['outputs'][n]:
+            if "spent_by" in tx["outputs"][n]:
                 o.spent = True
-                o.spending_txid = tx['outputs'][n]['spent_by']
+                o.spending_txid = tx["outputs"][n]["spent_by"]
         return t
 
-    def gettransactions(self, address, after_txid='', limit=MAX_TRANSACTIONS):
+    def gettransactions(self, address, after_txid="", limit=MAX_TRANSACTIONS):
         txs = []
         address = self._address_convert(address)
-        res = self.compose_request('addrs', address.address, variables={'unspentOnly': 0, 'limit': 2000})
+        res = self.compose_request(
+            "addrs", address.address, variables={"unspentOnly": 0, "limit": 2000}
+        )
         if not isinstance(res, list):
             res = [res]
         for a in res:
-            txrefs = a.get('txrefs', []) + a.get('unconfirmed_txrefs', [])
+            txrefs = a.get("txrefs", []) + a.get("unconfirmed_txrefs", [])
             txids = []
             for t in txrefs[::-1]:
-                if t['tx_hash'] not in txids:
-                    txids.append(t['tx_hash'])
-                if t['tx_hash'] == after_txid:
+                if t["tx_hash"] not in txids:
+                    txids.append(t["tx_hash"])
+                if t["tx_hash"] == after_txid:
                     txids = []
             if len(txids) > 500:
-                _logger.info("BlockCypher: Large number of transactions for address %s, "
-                             "Transaction list may be incomplete" % address.address_orig)
+                _logger.info(
+                    "BlockCypher: Large number of transactions for address %s, "
+                    "BitcoinTransaction list may be incomplete" % address.address_orig
+                )
             for txid in txids[:limit]:
                 t = self.gettransaction(txid)
                 txs.append(t)
         return txs
 
     def getrawtransaction(self, txid):
-        return self.compose_request('txs', txid, variables={'includeHex': 'true'})['hex']
+        return self.compose_request("txs", txid, variables={"includeHex": "true"})[
+            "hex"
+        ]
 
     def sendrawtransaction(self, rawtx):
         # BlockCypher sometimes accepts transactions, but does not push them to the network :(
-        if self.network.name in ['bitcoin', 'litecoin']:
-            raise ClientError("Avoid stuck transactions, skip usage of blockcypher provider")
-        res = self.compose_request('txs', 'push', variables={'tx': rawtx}, method='post')
-        return {
-            'txid': res['tx']['hash'],
-            'response_dict': res
-        }
+        if self.network.name in ["bitcoin", "litecoin"]:
+            raise ClientError(
+                "Avoid stuck transactions, skip usage of blockcypher provider"
+            )
+        res = self.compose_request(
+            "txs", "push", variables={"tx": rawtx}, method="post"
+        )
+        return {"txid": res["tx"]["hash"], "response_dict": res}
 
     def estimatefee(self, blocks):
-        res = self.compose_request('', '')
+        res = self.compose_request("", "")
         if blocks <= 10:
-            return res['medium_fee_per_kb']
+            return res["medium_fee_per_kb"]
         else:
-            return res['low_fee_per_kb']
+            return res["low_fee_per_kb"]
 
     def blockcount(self):
-        return self.compose_request('', '')['height']
+        return self.compose_request("", "")["height"]
 
     def mempool(self, txid):
         if txid:
-            tx = self.compose_request('txs', txid)
-            if tx['confirmations'] == 0:
-                return [tx['hash']]
+            tx = self.compose_request("txs", txid)
+            if tx["confirmations"] == 0:
+                return [tx["hash"]]
             else:
                 return []
         return False
@@ -182,32 +202,42 @@ class BlockCypher(BaseClient):
     def getblock(self, blockid, parse_transactions, page, limit):
         if limit > 100:
             limit = 100
-        bd = self.compose_request('blocks', str(blockid), variables={'limit': limit, 'txstart': ((page-1)*limit)})
+        bd = self.compose_request(
+            "blocks",
+            str(blockid),
+            variables={"limit": limit, "txstart": ((page - 1) * limit)},
+        )
         if parse_transactions:
             txs = []
-            for txid in bd['txids']:
+            for txid in bd["txids"]:
                 try:
                     txs.append(self.gettransaction(txid))
                 except Exception as e:
                     _logger.error("Could not parse tx %s with error %s" % (txid, e))
         else:
-            txs = bd['txids']
+            txs = bd["txids"]
 
         block = {
-            'bits': bd['bits'],
-            'depth': bd['depth'],
-            'block_hash': bd['hash'],
-            'height': bd['height'],
-            'merkle_root': bd['mrkl_root'],
-            'nonce': bd['nonce'],
-            'prev_block': bd['prev_block'],
-            'time': int(datetime.strptime(bd['time'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()),
-            'tx_count': bd['n_tx'],
-            'txs': txs,
-            'version': bd['ver'],
-            'page': page,
-            'pages': None if not limit else int(bd['n_tx'] // limit) + (bd['n_tx'] % limit > 0),
-            'limit': limit
+            "bits": bd["bits"],
+            "depth": bd["depth"],
+            "block_hash": bd["hash"],
+            "height": bd["height"],
+            "merkle_root": bd["mrkl_root"],
+            "nonce": bd["nonce"],
+            "prev_block": bd["prev_block"],
+            "time": int(
+                datetime.strptime(bd["time"], "%Y-%m-%dT%H:%M:%SZ")
+                .replace(tzinfo=timezone.utc)
+                .timestamp()
+            ),
+            "tx_count": bd["n_tx"],
+            "txs": txs,
+            "version": bd["ver"],
+            "page": page,
+            "pages": None
+            if not limit
+            else int(bd["n_tx"] // limit) + (bd["n_tx"] % limit > 0),
+            "limit": limit,
         }
         return block
 

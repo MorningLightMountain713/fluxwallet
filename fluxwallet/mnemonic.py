@@ -40,8 +40,7 @@ class Mnemonic(object):
 
         """
         self._wordlist = []
-        with Path(FW_INSTALL_DIR, 'wordlist', '%s.txt' % language).open() as f:
-            self._wordlist = [w.strip() for w in f.readlines()]
+        self.change_language(language)
 
     @staticmethod
     def checksum(data):
@@ -55,12 +54,22 @@ class Mnemonic(object):
         """
         data = to_bytes(data)
         if len(data) % 4 > 0:
-            raise ValueError('Data length in bits should be divisible by 32, but it is not (%d bytes = %d bits).' %
-                             (len(data), len(data) * 8))
+            raise ValueError(
+                "Data length in bits should be divisible by 32, but it is not (%d bytes = %d bits)."
+                % (len(data), len(data) * 8)
+            )
         key_hash = hashlib.sha256(data).digest()
-        return change_base(key_hash, 256, 2, 256)[:len(data) * 8 // 32]
+        return change_base(key_hash, 256, 2, 256)[: len(data) * 8 // 32]
 
-    def to_seed(self, words, password='', validate=True):
+    def change_language(self, language: str):
+        wordlist_path = Path(FW_INSTALL_DIR) / f"wordlist/{language}.txt"
+        self._ingest_wordlist(wordlist_path)
+
+    def _ingest_wordlist(self, wordlist_path: Path):
+        with open(wordlist_path) as stream:
+            self._wordlist = [w.strip() for w in stream.readlines()]
+
+    def to_seed(self, words, password="", validate=True):
         """
         Use Mnemonic words and optionally a password to create a PBKDF2 seed (Password-Based Key Derivation Function 2)
 
@@ -84,8 +93,12 @@ class Mnemonic(object):
             self.to_entropy(words)
         mnemonic = to_bytes(words)
         password = to_bytes(password)
-        return hashlib.pbkdf2_hmac(hash_name='sha512', password=mnemonic, salt=b'mnemonic' + password,
-                                   iterations=2048)
+        return hashlib.pbkdf2_hmac(
+            hash_name="sha512",
+            password=mnemonic,
+            salt=b"mnemonic" + password,
+            iterations=2048,
+        )
 
     def word(self, index):
         """
@@ -142,15 +155,21 @@ class Mnemonic(object):
         :return str: Mnemonic passphrase consisting of a space seperated list of words
         """
         data = to_bytes(data)
-        data_int = int.from_bytes(data, 'big')
+        data_int = int.from_bytes(data, "big")
         if check_on_curve and not 0 < data_int < secp256k1_n:
-            raise ValueError("Integer value of data should be in secp256k1 domain between 1 and secp256k1_n-1")
+            raise ValueError(
+                "Integer value of data should be in secp256k1 domain between 1 and secp256k1_n-1"
+            )
         if add_checksum:
-            binresult = change_base(data_int, 10, 2, len(data) * 8) + self.checksum(data)
+            binresult = change_base(data_int, 10, 2, len(data) * 8) + self.checksum(
+                data
+            )
             wi = change_base(binresult, 2, 2048)
         else:
-            wi = change_base(data_int, 10, 2048, len(data) // 1.375 + len(data) % 1.375 > 0)
-        return normalize_string(' '.join([self._wordlist[i] for i in wi]))
+            wi = change_base(
+                data_int, 10, 2048, len(data) // 1.375 + len(data) % 1.375 > 0
+            )
+        return normalize_string(" ".join([self._wordlist[i] for i in wi]))
 
     def to_entropy(self, words, includes_checksum=True):
         """
@@ -169,18 +188,18 @@ class Mnemonic(object):
         """
         words = self.sanitize_mnemonic(words)
         if isinstance(words, TYPE_TEXT):
-            words = words.split(' ')
+            words = words.split(" ")
         wi = []
         for word in words:
             wi.append(self._wordlist.index(word))
-        ent_length = int(len(words) * 4/3)
+        ent_length = int(len(words) * 4 / 3)
         ent = change_base(wi, 2048, 256, ent_length, output_even=False)
         if includes_checksum:
             binresult = change_base(ent, 256, 2, len(ent) * 4)
-            ent = change_base(binresult[:-len(binresult) // 33], 2, 256, ent_length)
+            ent = change_base(binresult[: -len(binresult) // 33], 2, 256, ent_length)
 
             # Check checksum
-            checksum = binresult[-len(binresult) // 33:]
+            checksum = binresult[-len(binresult) // 33 :]
             if checksum != self.checksum(ent):
                 raise ValueError("Invalid checksum %s for entropy %s" % (checksum, ent))
 
@@ -201,14 +220,16 @@ class Mnemonic(object):
         """
         words = normalize_string(words)
         if isinstance(words, TYPE_TEXT):
-            words = words.split(' ')
+            words = words.split(" ")
 
         wlcount = {}
-        for fn in Path(FW_INSTALL_DIR, 'wordlist').iterdir():
+        for fn in Path(FW_INSTALL_DIR, "wordlist").iterdir():
             if fn.suffix == ".txt":
-                with open(os.path.join(str(FW_INSTALL_DIR), 'wordlist', fn), encoding='utf-8') as f:
+                with open(
+                    os.path.join(str(FW_INSTALL_DIR), "wordlist", fn), encoding="utf-8"
+                ) as f:
                     wordlist = [w.strip() for w in f.readlines()]
-                    language = fn.name.split('.')[0]
+                    language = fn.name.split(".")[0]
                     wlcount[language] = 0
                     for word in words:
                         if word in wordlist:
@@ -232,10 +253,13 @@ class Mnemonic(object):
         words = normalize_string(words)
         language = self.detect_language(words)
         if isinstance(words, TYPE_TEXT):
-            words = words.split(' ')
-        with Path(FW_INSTALL_DIR, 'wordlist', '%s.txt' % language).open() as f:
+            words = words.split(" ")
+        with Path(FW_INSTALL_DIR, "wordlist", "%s.txt" % language).open() as f:
             wordlist = [w.strip() for w in f.readlines()]
             for word in words:
                 if word not in wordlist:
-                    raise Warning("Unrecognised word %s in mnemonic sentence" % word.encode('utf8'))
-        return ' '.join(words)
+                    raise Warning(
+                        "Unrecognised word %s in mnemonic sentence"
+                        % word.encode("utf8")
+                    )
+        return " ".join(words)

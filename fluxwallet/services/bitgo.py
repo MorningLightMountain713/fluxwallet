@@ -23,25 +23,26 @@ from datetime import datetime
 
 from fluxwallet.main import MAX_TRANSACTIONS
 from fluxwallet.services.baseclient import BaseClient, ClientError
-from fluxwallet.transactions import Transaction
+from fluxwallet.transactions import BitcoinTransaction
 
 _logger = logging.getLogger(__name__)
 
-PROVIDERNAME = 'bitgo'
+PROVIDERNAME = "bitgo"
 LIMIT_TX = 49
 
 
 class BitGoClient(BaseClient):
-
     def __init__(self, network, base_url, denominator, *args):
-        super(self.__class__, self).__init__(network, PROVIDERNAME, base_url, denominator, *args)
+        super(self.__class__, self).__init__(
+            network, PROVIDERNAME, base_url, denominator, *args
+        )
 
-    def compose_request(self, category, data, cmd='', variables=None, method='get'):
+    def compose_request(self, category, data, cmd="", variables=None, method="get"):
         if data:
-            data = '/' + data
+            data = "/" + data
         url_path = category + data
-        if cmd != '':
-            url_path += '/' + cmd
+        if cmd != "":
+            url_path += "/" + cmd
         return self.request(url_path, variables, method=method)
 
     # def getbalance(self, addresslist):
@@ -51,42 +52,48 @@ class BitGoClient(BaseClient):
     #         balance += res['balance']
     #     return balance
 
-    def getutxos(self, address, after_txid='', limit=MAX_TRANSACTIONS):
+    def getutxos(self, address, after_txid="", limit=MAX_TRANSACTIONS):
         utxos = []
         skip = 0
         total = 1
         while total > skip:
-            variables = {'limit': 100, 'skip': skip}
-            res = self.compose_request('address', address, 'unspents', variables)
-            for utxo in res['unspents'][::-1]:
-                if utxo['tx_hash'] == after_txid:
+            variables = {"limit": 100, "skip": skip}
+            res = self.compose_request("address", address, "unspents", variables)
+            for utxo in res["unspents"][::-1]:
+                if utxo["tx_hash"] == after_txid:
                     break
                 utxos.append(
                     {
-                        'address': utxo['address'],
-                        'txid': utxo['tx_hash'],
-                        'confirmations': utxo['confirmations'],
-                        'output_n': utxo['tx_output_n'],
-                        'input_n': 0,
-                        'block_height': int(utxo['blockHeight']) if utxo['blockHeight'] else None,
-                        'fee': None,
-                        'size': 0,
-                        'value': int(round(utxo['value'] * self.units, 0)),
-                        'script': utxo['script'],
-                        'date': datetime.strptime(utxo['date'], "%Y-%m-%dT%H:%M:%S.%fZ")
-                     }
+                        "address": utxo["address"],
+                        "txid": utxo["tx_hash"],
+                        "confirmations": utxo["confirmations"],
+                        "output_n": utxo["tx_output_n"],
+                        "input_n": 0,
+                        "block_height": int(utxo["blockHeight"])
+                        if utxo["blockHeight"]
+                        else None,
+                        "fee": None,
+                        "size": 0,
+                        "value": int(round(utxo["value"] * self.units, 0)),
+                        "script": utxo["script"],
+                        "date": datetime.strptime(
+                            utxo["date"], "%Y-%m-%dT%H:%M:%S.%fZ"
+                        ),
+                    }
                 )
-            total = res['total']
-            skip = res['start'] + res['count']
+            total = res["total"]
+            skip = res["start"] + res["count"]
             if skip > 2000:
-                _logger.info("BitGoClient: UTXO's list has been truncated, list is incomplete")
+                _logger.info(
+                    "BitGoClient: UTXO's list has been truncated, list is incomplete"
+                )
                 break
         return utxos[::-1][:limit]
 
     # RAW TRANSACTION DOES NOT CONTAIN CORRECT RAW TRANSACTION (MISSING SIGS)
     # def gettransaction(self, txid):
     #     tx = self.compose_request('tx', txid)
-    #     t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network)
+    #     t = BitcoinTransaction.parse_hex(tx['hex'], strict=self.strict, network=self.network)
     #     t.status = 'unconfirmed'
     #     t.date = None
     #     if tx['confirmations']:
@@ -141,7 +148,7 @@ class BitGoClient(BaseClient):
     #                 txids.insert(0, tx['id'])
     #         total = res['total']
     #         # if total > 2000:
-    #         #     raise ClientError("BitGoClient: Transactions list limit exceeded > 2000")
+    #         #     raise ClientError("BitGoClient: BitcoinTransactions list limit exceeded > 2000")
     #         skip = res['start'] + res['count']
     #         if len(txids) > limit:
     #             break
@@ -154,7 +161,7 @@ class BitGoClient(BaseClient):
     # RAW TRANSACTION DOES NOT CONTAIN CORRECT RAW TRANSACTION (MISSING SIGS)
     # def getrawtransaction(self, txid):
     #     tx = self.compose_request('tx', txid)
-    #     t = Transaction.parse_hex(tx['hex'], strict=self.strict, network=self.network)
+    #     t = BitcoinTransaction.parse_hex(tx['hex'], strict=self.strict, network=self.network)
     #     for i in t.inputs:
     #         if not i.address:
     #             raise ClientError("Address missing in input. Provider might not support segwit transactions")
@@ -163,11 +170,11 @@ class BitGoClient(BaseClient):
     # def sendrawtransaction
 
     def estimatefee(self, blocks):
-        res = self.compose_request('tx', 'fee', variables={'numBlocks': blocks})
-        return res['feePerKb']
+        res = self.compose_request("tx", "fee", variables={"numBlocks": blocks})
+        return res["feePerKb"]
 
     def blockcount(self):
-        return self.compose_request('block', 'latest')['height']
+        return self.compose_request("block", "latest")["height"]
 
     # def mempool
 
