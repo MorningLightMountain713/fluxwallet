@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fluxwallet"
-version = "0.1.0"
+version = "0.1.2"
 description = "A Wallet implementation for Flux"
 authors = ["David White <dr.white.nz@gmail.com>"]
 license = "bsd 3-clause"
@@ -14,7 +14,7 @@ aiosqlite = "^0.19.0"
 fastecdsa = { version = "^2.2.1", markers = "sys_platform != 'win32'" }
 ecdsa = { version = "^0.17", platform = "win32" }
 pycryptodome = "^3.14.1"
-SQLAlchemy = "^1.4.28"
+SQLAlchemy = "^2.0.19"
 numpy = "^1.21.0"
 
 [tool.poetry.dev-dependencies]

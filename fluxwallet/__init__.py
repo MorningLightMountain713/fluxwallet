@@ -21,7 +21,8 @@
 import fluxwallet.encoding
 import fluxwallet.keys
 import fluxwallet.mnemonic
-import fluxwallet.tools
+
+# import fluxwallet.tools
 import fluxwallet.transactions
 import fluxwallet.values
 import fluxwallet.wallet
@@ -32,7 +33,7 @@ __all__ = [
     "wallets",
     "encoding",
     "mnemonic",
-    "tools",
+    # "tools",
     "blocks",
     "values",
 ]
