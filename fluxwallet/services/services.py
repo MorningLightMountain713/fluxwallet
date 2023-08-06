@@ -18,24 +18,25 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fluxwallet.wallet import GenericTransaction
 
 import asyncio
-from asyncio import Queue
+import inspect
 import json
 import logging
 import random
-import inspect
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
-from functools import wraps
-from rich.pretty import pprint
+from asyncio import Queue
 from collections.abc import Iterator
+from datetime import datetime, timedelta
+from functools import wraps
+from pathlib import Path
 
+from rich.pretty import pprint
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,15 +62,13 @@ from fluxwallet.db_cache import (
     DbCacheTransactionNode,
     DbCacheVars,
 )
-
 from fluxwallet.encoding import int_to_varbyteint, to_bytes, varbyteint_to_int, varstr
 from fluxwallet.networks import Network
 from fluxwallet.transactions import (
-    transaction_update_spents,
-    FluxTransaction,
     BitcoinTransaction,
+    FluxTransaction,
+    transaction_update_spents,
 )
-
 
 _logger = logging.getLogger(__name__)
 
@@ -83,13 +82,16 @@ def test_cache(f):
     return inner
 
 
-class Singleton(type):
+class SingletonNetwork(type):
     _instances = {}
 
     def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super().__call__(*args, **kwargs)
-        return cls._instances[cls]
+        network = kwargs["network"]
+
+        if network not in cls._instances:
+            cls._instances[network] = super().__call__(*args, **kwargs)
+
+        return cls._instances[network]
 
 
 class ServiceError(Exception):
@@ -101,7 +103,7 @@ class ServiceError(Exception):
         return self.msg
 
 
-class Service(metaclass=Singleton):
+class Service(metaclass=SingletonNetwork):
     """
     Class to connect to various cryptocurrency service providers. Use to receive network and blockchain information,
     get specific transaction information, current network fees or push a raw transaction.
@@ -113,6 +115,7 @@ class Service(metaclass=Singleton):
 
     def __init__(
         self,
+        *,
         network: str | Network = DEFAULT_NETWORK,
         min_providers: int = 1,
         max_providers: int = 1,
@@ -526,8 +529,8 @@ class Service(metaclass=Singleton):
         self._reset_results()
         self.results_cache_n = 0
 
-        if not address:
-            yield []
+        # if not address:
+        #     yield []
 
         if not isinstance(address, TYPE_TEXT):
             raise ServiceError("Address parameter must be of type text")
@@ -547,7 +550,6 @@ class Service(metaclass=Singleton):
                 address, after_tx_index, limit
             ):
                 self.results_cache_n = len(txs_cache)
-                print("results cache length", len(txs_cache))
                 # if len(txs_cache) == limit:
                 #     return txs_cache
 
@@ -1076,10 +1078,12 @@ class Cache:
                 )
             )
 
-        db_tx = res.first()
+            db_tx = res.first()
 
-        if not db_tx:
-            return False
+            if not db_tx:
+                return False
+
+            await db_tx.awaitable_attrs.nodes
 
         # ??? removed this
         # db_tx.txid = txid

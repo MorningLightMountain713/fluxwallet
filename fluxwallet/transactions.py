@@ -18,15 +18,17 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 from __future__ import annotations
-import inspect
+
 import asyncio
+import inspect
 import json
 import pickle
 import random
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from io import BytesIO
-import time
+from typing import TYPE_CHECKING
 
 from fluxwallet.config.opcodes import *
 from fluxwallet.encoding import *
@@ -45,7 +47,6 @@ from fluxwallet.keys import (
 from fluxwallet.networks import Network
 from fluxwallet.scripts import Script
 from fluxwallet.values import Value, value_to_satoshi
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fluxwallet.wallet import GenericTransaction
@@ -2643,9 +2644,7 @@ class FluxTransaction(BaseTransaction):
         if isinstance(version, bytes):
             version = int.from_bytes(version, byteorder="big")
 
-        start = time.perf_counter()
         self.sapling_tx = SaplingTx(version, nExpiryHeight=expiry_height)
-        start = time.perf_counter()
         super().__init__(*args, version=version, expiry_height=expiry_height, **kwargs)
 
     def __repr__(self):

@@ -10,12 +10,15 @@
 
 import argparse
 import ast
+import asyncio
 import sys
 from pprint import pprint
 
 from fluxwallet.keys import HDKey
 from fluxwallet.main import FLUXWALLET_VERSION
 from fluxwallet.mnemonic import Mnemonic
+from fluxwallet.wallet import Wallet, WalletTransaction
+from fluxwallet.wallet.errors import WalletError
 
 # from fluxwallet.wallet import (
 #     Wallet,
@@ -25,10 +28,7 @@ from fluxwallet.mnemonic import Mnemonic
 #     wallet_exists,
 #     wallets_list,
 # )
-from fluxwallet.wallet.helpers import wallet_empty, wallet_exists, wallet_delete
-from fluxwallet.wallet import Wallet, WalletTransaction
-from fluxwallet.wallet.errors import WalletError
-import asyncio
+from fluxwallet.wallet.helpers import wallet_delete, wallet_empty, wallet_exists
 
 # import logging
 

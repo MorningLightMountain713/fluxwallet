@@ -1,43 +1,44 @@
 from __future__ import annotations
+
 import pickle
+import time
 from itertools import groupby
 from operator import itemgetter
 from typing import TYPE_CHECKING
 
-import time
-
 if TYPE_CHECKING:
     from fluxwallet.wallet import Wallet
 
+from enum import Enum
+from typing import TypeVar
+
 from rich.pretty import pprint
 from sqlalchemy import select
-from fluxwallet.db_new import (
-    DbTransaction,
-    DbTransactionOutput,
-    DbTransactionInput,
-    DbKey,
-)
-from fluxwallet.keys import HDKey
 from sqlalchemy.exc import IntegrityError
+
+from fluxwallet.db_new import (
+    DbKey,
+    DbTransaction,
+    DbTransactionInput,
+    DbTransactionOutput,
+)
 
 # from fluxwallet.db_new import
 from fluxwallet.encoding import *
-from fluxwallet.keys import Address, check_network_and_key
+from fluxwallet.keys import Address, HDKey, check_network_and_key
 from fluxwallet.mnemonic import Mnemonic
 from fluxwallet.networks import Network
 from fluxwallet.scripts import Script
 from fluxwallet.services.services import Service
 from fluxwallet.transactions import (
     BaseTransaction,
+    BitcoinTransaction,
     FluxTransaction,
     Input,
     Output,
-    BitcoinTransaction,
 )
 from fluxwallet.values import Value, value_to_satoshi
 from fluxwallet.wallet.errors import WalletError
-from enum import Enum
-from typing import TypeVar
 
 _logger = logging.getLogger(__name__)
 
@@ -122,13 +123,6 @@ class WalletTransaction:
             hdwallet, transaction, addresslist, account_id=account_id
         )
 
-        # self.outgoing_tx = bool(
-        #     [i.address for i in self.tx.inputs if i.address in addresslist]
-        # )
-        # self.incoming_tx = bool(
-        #     [o.address for o in self.tx.outputs if o.address in addresslist]
-        # )
-
         return self
 
     def __repr__(self):
@@ -194,7 +188,9 @@ class WalletTransaction:
     #     )
 
     @classmethod
-    async def from_txid(cls, hdwallet: Wallet, txid: str):
+    async def from_txid(
+        cls, hdwallet: Wallet, txid: str, addresslist: list[str] | None
+    ):
         """
         Read single transaction from database with given transaction ID / transaction hash
 
@@ -206,6 +202,9 @@ class WalletTransaction:
         :return WalletClass:
 
         """
+        if not addresslist:
+            addresslist = await hdwallet.addresslist()
+
         async with hdwallet.db.get_session() as session:
             # If txid is unknown add it to database, else update
             # start = time.perf_counter()
@@ -321,7 +320,7 @@ class WalletTransaction:
             verified=db_tx.verified,
         )
 
-        return cls(hdwallet, tx, account_id=db_tx.account_id)
+        return cls(hdwallet, tx, addresslist, account_id=db_tx.account_id)
 
     def to_transaction(self) -> GenericTransaction:
         return self.tx
@@ -463,6 +462,33 @@ class WalletTransaction:
             await session.commit()
 
         await self.hdwallet._balance_update(network=self.tx.network.name)
+
+    async def sync(self) -> None:
+        """Sync this wallet transaction data with the database"""
+
+        async with self.hdwallet.db.get_session() as session:
+            res = await session.scalars(
+                select(DbTransaction).filter(
+                    DbTransaction.wallet_id == self.hdwallet.wallet_id,
+                    DbTransaction.txid == bytes.fromhex(self.tx.txid),
+                )
+            )
+            db_tx = res.first()
+
+            if not db_tx:
+                return
+
+        self.tx.block_height = (
+            db_tx.block_height if db_tx.block_height else self.tx.block_height
+        )
+
+        self.tx.confirmations = (
+            db_tx.confirmations if db_tx.confirmations else self.tx.confirmations
+        )
+
+        self.tx.date = db_tx.date if db_tx.date else self.tx.date
+
+        self.status = db_tx.status if db_tx.status else self.status
 
     async def store(self):
         """
@@ -620,7 +646,38 @@ class WalletTransaction:
                     if ti.unlocking_script:
                         tx_input.script = ti.unlocking_script
 
-                await session.commit()
+                rolled_back = False
+                try:
+                    await session.commit()
+
+                except IntegrityError:
+                    print("ROLLEDBACK")
+                    _logger.info(
+                        f"Rolling back this transaction, already stored for tx: {self.tx.txid}"
+                    )
+                    await session.rollback()
+                    rolled_back = True
+
+                except Exception as e:  # pragma: no cover
+                    _logger.warning(f"Tx store failure tx: {e}")
+
+                if rolled_back and key_id:
+                    res = await session.scalars(
+                        select(DbTransactionInput).filter_by(
+                            transaction_id=txidn, index_n=ti.index_n
+                        )
+                    )
+                    tx_input = res.first()
+
+                    tx_input.key_id = key_id
+                    if ti.value:
+                        tx_input.value = ti.value
+                    if ti.prev_txid:
+                        tx_input.prev_txid = ti.prev_txid
+                    if ti.unlocking_script:
+                        tx_input.script = ti.unlocking_script
+
+                    await session.commit()
 
             for to in self.tx.outputs:
                 res = await session.scalars(

@@ -1,4 +1,3 @@
-from .wallet_transaction import WalletTransaction, GenericTransaction
 from .errors import WalletError
 
 # from .helpers import (
@@ -10,3 +9,5 @@ from .errors import WalletError
 #     wallet_exists,
 # )
 from .wallet import Wallet
+from .wallet_key import WalletKey
+from .wallet_transaction import GenericTransaction, WalletTransaction

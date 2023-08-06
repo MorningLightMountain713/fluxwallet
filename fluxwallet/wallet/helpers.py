@@ -11,7 +11,6 @@ from fluxwallet.db_new import (
     DbTransactionOutput,
     DbWallet,
 )
-
 from fluxwallet.wallet import Wallet
 
 _logger = logging.getLogger(__name__)

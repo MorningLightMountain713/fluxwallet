@@ -22,7 +22,7 @@ from io import BytesIO
 
 from fluxwallet.encoding import *
 from fluxwallet.networks import Network
-from fluxwallet.transactions import FluxTransaction, BitcoinTransaction
+from fluxwallet.transactions import BitcoinTransaction, FluxTransaction
 
 
 class Block:

@@ -1,23 +1,23 @@
 from __future__ import annotations
-from rich.pretty import pprint
+
 import asyncio
 import logging
-from typing import Sequence, Union
-from operator import itemgetter
-from itertools import groupby
 import random
-import numpy as np
-from concurrent.futures import ProcessPoolExecutor
-from collections.abc import Iterator
-from asyncio import Queue
-
 import time
-from sqlalchemy import delete, or_, select, update, func
-from sqlalchemy.orm import selectinload
+from asyncio import Queue
+from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
+from itertools import groupby
+from operator import itemgetter
+from typing import Sequence, Union
+
+import numpy as np
+from rich.pretty import pprint
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from fluxwallet.config.config import DEFAULT_WITNESS_TYPE, DEFAULT_DATABASE
-
+from fluxwallet.config.config import DEFAULT_DATABASE, DEFAULT_WITNESS_TYPE
 from fluxwallet.db_new import (
     Db,
     DbKey,
@@ -40,19 +40,18 @@ from fluxwallet.mnemonic import Mnemonic
 from fluxwallet.networks import Network
 from fluxwallet.scripts import Script
 from fluxwallet.services.services import Service
-from fluxwallet.wallet import WalletTransaction, GenericTransaction
 from fluxwallet.transactions import (
     BaseTransaction,
-    FluxTransaction,
     BitcoinTransaction,
+    FluxTransaction,
     Input,
     Output,
     get_unlocking_script_type,
 )
 from fluxwallet.values import Value, value_to_satoshi
+from fluxwallet.wallet import GenericTransaction, WalletTransaction
 from fluxwallet.wallet.errors import WalletError
 from fluxwallet.wallet.wallet_key import WalletKey
-
 
 # from fluxwallet.wallet import wallet_exists
 
@@ -592,8 +591,6 @@ class Wallet:
         :type wallet: int, str
         :param db_uri: URI of the database
         :type db_uri: str
-        :param session: Sqlalchemy session
-        :type session: sqlalchemy.orm.session.Session
         :param main_key_object: Pass main key object to save time
         :type main_key_object: HDKey
         """
@@ -936,7 +933,7 @@ class Wallet:
         network: str | None = None,
         purpose: int = 44,
         key_type: str | None = None,
-    ) -> WalletKey:
+    ) -> WalletKey | None:
         """
         Add new single key to wallet.
 
@@ -1003,6 +1000,25 @@ class Wallet:
             async with self.db.get_session() as session:
                 ik_path = "m"
                 if key_type == "single":
+                    print("WIFFER", hdkey.private_byte)
+                    print("NEWORK", network)
+                    print("ACCOUNTID", account_id)
+                    # Check if key exists
+                    res = await session.scalars(
+                        select(DbKey).filter(
+                            DbKey.account_id == account_id,
+                            DbKey.network.has(name=network),
+                            DbKey.private == hdkey.private_byte,
+                        )
+                    )
+
+                    key_exists = res.first()
+
+                    print("KEY EXISTS", key_exists)
+
+                    if key_exists:
+                        return None
+
                     # Create path for unrelated import keys
                     hdkey.depth = self.key_depth
                     res = await session.scalars(
@@ -1230,7 +1246,7 @@ class Wallet:
 
     async def scan_key(
         self, key: int | WalletKey, update_confirmations: bool = True
-    ) -> bool:
+    ) -> set[str]:
         """
         Scan for new transactions for specified wallet key and update wallet transactions
 
@@ -1240,33 +1256,35 @@ class Wallet:
         :return bool: New transactions found?
 
         """
-        print("Scan Key", key)
 
         if isinstance(key, int):
             key = await self.key(key)
 
-        txs_found = False
-        should_be_finished_count = 0
+        # until I fix up api stuff
+        if key.network != "flux":
+            return set()
+
+        txs_found = 0
+        txids_found = set()
 
         while True:
-            n_new = await self.transactions_update(
-                key_id=key.key_id, update_confirmations=False
+            new_txids = await self.transactions_update(
+                key_id=key.key_id, update_confirmations=update_confirmations
             )
-            if n_new and n_new < MAX_TRANSACTIONS:
-                if should_be_finished_count:
-                    _logger.info(
-                        "Possible recursive loop detected in scan_key(%d): retry %d/5"
-                        % (key.key_id, should_be_finished_count)
-                    )
-                should_be_finished_count += 1
+            new_tx_count = len(new_txids)
+
             _logger.info(
                 "Scanned key %d, %s Found %d new transactions"
-                % (key.key_id, key.address, n_new)
+                % (key.key_id, key.address, new_tx_count)
             )
-            if not n_new or should_be_finished_count > 5:
+
+            txs_found += new_tx_count
+            txids_found.update(new_txids)
+
+            if new_tx_count < MAX_TRANSACTIONS:
                 break
-            txs_found = True
-        return txs_found
+
+        return txids_found
 
     async def scan(
         self,
@@ -1275,8 +1293,8 @@ class Wallet:
         change: bool | None = None,
         rescan_used: bool = False,
         network: str | None = None,
-        keys_ignore: list[int] = [],
-    ):
+        keys_ignore: list[int] | None = None,
+    ) -> set[str]:
         """
         Generate new addresses/keys and scan for new transactions using the Service providers. Updates all UTXO's and balances.
 
@@ -1301,21 +1319,45 @@ class Wallet:
         :return:
         """
 
+        # until I fix up api stuff
+        if network != "flux":
+            return set()
+
+        if not keys_ignore:
+            keys_ignore = []
+
+        background_tasks = []
+
         network, account_id, _ = await self._get_account_defaults(network, account_id)
         if self.scheme != "bip32" and self.scheme != "multisig" and scan_gap_limit < 2:
             raise WalletError(
                 "The wallet scan() method is only available for BIP32 wallets"
             )
 
+        srv = Service(
+            network=network,
+            providers=self.providers,
+            cache_uri=self.db_cache_uri,
+        )
+
+        # populate cache
+        await srv.blockcount()
+
         # Update already known transactions with known block height
-        await self.transactions_update_confirmations()
+        background_tasks.append(
+            asyncio.create_task(self.transactions_update_confirmations())
+        )
 
         # Rescan used addresses
         if rescan_used:
             for key in await self.keys_addresses(
                 account_id=account_id, change=change, network=network, used=True
             ):
-                await self.scan_key(key.id, update_confirmations=False)
+                background_tasks.append(
+                    asyncio.create_task(
+                        self.scan_key(key.id, update_confirmations=False)
+                    )
+                )
 
         # Check unconfirmed transactions
         async with self.db.get_session() as session:
@@ -1330,8 +1372,12 @@ class Wallet:
 
         # db_txids = [x.txid for x in db_txs]
         if db_txids:
+            # start = time.perf_counter()
             # this still needs fixing... and concurrency
-            await self.transactions_update_by_txids(db_txids)
+            background_tasks.append(
+                asyncio.create_task(self.transactions_update_by_txids(db_txids))
+            )
+            # pprint(f"Time to update by txids: {time.perf_counter() - start}")
 
         # Scan each key address, stop when no new transactions are found after set scan gap limit
         if change is None:
@@ -1340,53 +1386,58 @@ class Wallet:
             change_range = [change]
 
         counter = 0
-        for chg in change_range:
-            while True:
-                if self.scheme == "single":
-                    keys_to_scan = [
-                        await self.key(k.id)
-                        for k in await self.keys_addresses()[
-                            counter : counter + scan_gap_limit
-                        ]
-                    ]
-                    counter += scan_gap_limit
-                else:
-                    keys_to_scan = await self.get_keys(
-                        account_id, network, number_of_keys=scan_gap_limit, change=chg
-                    )
-                n_highest_updated = 0
-                tasks = []
-                results = []
-                scanned: list[WalletKey] = []
-                for key in keys_to_scan:
-                    if key.key_id in keys_ignore:
-                        continue
+        new_transactions = set()
 
-                    keys_ignore.append(key.key_id)
-                    # results.append(await self.scan_key(key))
-                    tasks.append(
-                        asyncio.create_task(
-                            self.scan_key(key, update_confirmations=False)
+        while True:
+            if self.scheme == "single":
+                keys_to_scan = [
+                    await self.key(k.id)
+                    # check this
+                    for k in await self.keys_addresses()[
+                        counter : counter + scan_gap_limit
+                    ]
+                ]
+                counter += scan_gap_limit
+            else:  # bip32
+                # this is still ugly.
+                keys_to_scan = []
+                for change_type in change_range:
+                    keys_to_scan.extend(
+                        await self.get_keys(
+                            account_id,
+                            network,
+                            number_of_keys=scan_gap_limit,
+                            change=change_type,
                         )
                     )
-                    scanned.append(key)
 
-                results: list[bool] = await asyncio.gather(*tasks)
+            scan_tasks = []
 
-                highest_found_tx_index = 0
-                for new_txs_found, scanned_key in zip(results, scanned):
-                    if new_txs_found:
-                        if not scanned_key.address_index:
-                            # this seems weird
-                            scanned_key.address_index = 0
+            for key in keys_to_scan:
+                if key.key_id in keys_ignore:
+                    continue
 
-                        highest_found_tx_index = key.address_index + 1
+                # get_keys will return the same keys so we skip if we have already scanned
+                keys_ignore.append(key.key_id)
 
-                    if highest_found_tx_index > n_highest_updated:
-                        n_highest_updated = highest_found_tx_index
+                scan_tasks.append(
+                    asyncio.create_task(self.scan_key(key, update_confirmations=False))
+                )
 
-                if not n_highest_updated:
-                    break
+            results: list[set[str]] = await asyncio.gather(*scan_tasks)
+
+            if not any(results):
+                break
+
+            results = set.union(*results)
+
+            # new_transactions += sum(results)
+            new_transactions.update(results)
+
+        # make sure other tasks finish before we return
+        await asyncio.gather(*background_tasks)
+
+        return new_transactions
 
     async def _get_key(
         self,
@@ -1415,6 +1466,7 @@ class Wallet:
                     network_name=network,
                     cosigner_id=cosigner_id,
                     used=True,
+                    key_type="bip32",
                     change=change,
                     depth=self.key_depth,
                 )
@@ -1433,6 +1485,7 @@ class Wallet:
                     network_name=network,
                     cosigner_id=cosigner_id,
                     used=False,
+                    key_type="bip32",
                     change=change,
                     depth=self.key_depth,
                 )
@@ -2001,7 +2054,9 @@ class Wallet:
 
         return keys
 
-    async def keys_networks(self, used: bool | None = None, as_dict: bool = False):
+    async def keys_networks(
+        self, used: bool | None = None, as_dict: bool = False
+    ) -> list[DbKey]:
         """
         Get keys of defined networks for this wallet. Wrapper for the :func:`keys` method
 
@@ -2971,6 +3026,7 @@ class Wallet:
         :return:
         """
         network = self.network.name
+
         srv = Service(
             network=network,
             providers=self.providers,
@@ -2989,19 +3045,20 @@ class Wallet:
 
             # do these concurrently
             for db_tx in db_txs:
-                await session.execute(
-                    update(DbTransaction)
-                    .filter_by(id=db_tx.id)
-                    .values(
-                        {
-                            DbTransaction.status: "confirmed",
-                            DbTransaction.confirmations: (
-                                blockcount - DbTransaction.block_height
-                            )
-                            + 1,
-                        }
-                    )
-                )
+                db_tx.confirmations = blockcount - db_tx.block_height
+                # await session.execute(
+                #     update(DbTransaction)
+                #     .filter_by(id=db_tx.id)
+                #     .values(
+                #         {
+                #             DbTransaction.status: "confirmed",
+                #             DbTransaction.confirmations: (
+                #                 blockcount - DbTransaction.block_height
+                #             )
+                #             + 1,
+                #         }
+                #     )
+                # )
             await session.commit()
 
     async def transactions_update_by_txids(self, txids: list[bytes] | bytes):
@@ -3029,7 +3086,7 @@ class Wallet:
         utxo_set = set()
         for t in txs:
             wt = await WalletTransaction.create(self, t)
-            wt.store()
+            await wt.store()
 
             utxos = [(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.tx.inputs]
             utxo_set.update(utxos)
@@ -3050,7 +3107,7 @@ class Wallet:
                 for u in tos:
                     u.spent = True
 
-            session.commit()
+            await session.commit()
 
         # self._balance_update(account_id=account_id, network=network, key_id=key_id)
 
@@ -3075,7 +3132,7 @@ class Wallet:
         change: int | None = None,
         limit: int = MAX_TRANSACTIONS,
         update_confirmations: bool = True,
-    ) -> int:
+    ) -> set[str]:
         """
         Update wallets transaction from service providers. Get all transactions for known keys in this wallet. The balances and unspent outputs (UTXO's) are updated as well. Only scan keys from default network and account unless another network or account is specified.
 
@@ -3101,6 +3158,7 @@ class Wallet:
         network, account_id, _ = await self._get_account_defaults(
             network, account_id, key_id
         )
+
         if depth is None:
             depth = self.key_depth
         # Update number of confirmations and status for already known transactions
@@ -3128,13 +3186,12 @@ class Wallet:
 
         # Get transactions for wallet's addresses
         # txs: list[BaseTransaction] = []
+        new_txids = set()
         tx_count = 0
 
-        print("Address to get txs for")
-        pprint(addresslist)
         for address in addresslist:
             last_tx_index = await self.transaction_last(address, by_index=True)
-            print("last index", last_tx_index)
+
             tx_generator = srv.get_transactions_by_address(
                 address,
                 limit=limit,
@@ -3167,17 +3224,13 @@ class Wallet:
 
                 # Update Transaction outputs to get list of unspent outputs (UTXO's)
 
-                start = time.perf_counter()
-                print("creating / storing", len(txs), "wallet txs")
                 tasks = []
                 for t in txs:
+                    new_txids.add(t.txid)
                     tasks.append(self.create_and_store_wallet_tx(t, all_addresslist))
 
                 results = await asyncio.gather(*tasks)
                 utxo_set.update(*results)
-
-                print("Took", time.perf_counter() - start, "seconds to store txs")
-                # await asyncio.sleep(0.20)
 
             async with self.db.get_session() as session:
                 for utxo in utxo_set:
@@ -3223,10 +3276,10 @@ class Wallet:
             account_id=account_id, network=network, key_id=key_id
         )
 
-        while not self.wallet_tx_queue.empty():
-            await asyncio.sleep(0.1)
+        # while not self.wallet_tx_queue.empty():
+        #     await asyncio.sleep(0.1)
 
-        return tx_count
+        return new_txids
 
     async def transaction_last(self, address: str, by_index: bool = False) -> str | int:
         """
@@ -3423,6 +3476,7 @@ class Wallet:
         :return list of WalletTransaction:
         """
         network, _, _ = await self._get_account_defaults(network)
+        addresslist = await self.addresslist()
 
         async with self.db.get_session() as session:
             stmt = select(
@@ -3438,6 +3492,9 @@ class Wallet:
                         DbTransaction.status == "unconfirmed",
                     )
                 )
+            # changed this from block_height to date. As unconfirmed don't have block height
+            stmt = stmt.order_by(DbTransaction.date.desc())
+
             txs: list[WalletTransaction] = []
             if limit:
                 stmt = stmt.limit(limit)
@@ -3456,10 +3513,12 @@ class Wallet:
             txs = []
             end = complete + step
             for tx in found_txs[complete:end]:
-                txs.append(await self.transaction(tx.txid.hex()))
+                txs.append(await self.transaction(tx.txid.hex(), addresslist))
 
             complete += step
-            yield txs
+
+            if txs:
+                yield txs
 
     async def transactions_export(
         self,
@@ -3517,7 +3576,9 @@ class Wallet:
                 )
         return txs_tuples
 
-    async def transaction(self, txid: str) -> WalletTransaction:
+    async def transaction(
+        self, txid: str, addresslist: list[str] | None = None
+    ) -> WalletTransaction:
         """
         Get WalletTransaction object for given transaction ID (transaction hash)
 
@@ -3526,7 +3587,7 @@ class Wallet:
 
         :return WalletTransaction:
         """
-        return await WalletTransaction.from_txid(self, txid)
+        return await WalletTransaction.from_txid(self, txid, addresslist)
 
     async def transaction_spent(self, txid: str, output_n: int | bytes):
         """

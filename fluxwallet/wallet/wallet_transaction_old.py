@@ -1,41 +1,40 @@
 from __future__ import annotations
+
 import pickle
+import time
 from itertools import groupby
 from operator import itemgetter
 from typing import TYPE_CHECKING
-
-import time
 
 if TYPE_CHECKING:
     from fluxwallet.wallet import Wallet
 
 from rich.pretty import pprint
 from sqlalchemy import select
-from fluxwallet.db_new import (
-    DbTransaction,
-    DbTransactionOutput,
-    DbTransactionInput,
-    DbKey,
-)
-from fluxwallet.keys import HDKey
 from sqlalchemy.exc import IntegrityError
+
+from fluxwallet.db_new import (
+    DbKey,
+    DbTransaction,
+    DbTransactionInput,
+    DbTransactionOutput,
+)
 
 # from fluxwallet.db_new import
 from fluxwallet.encoding import *
-from fluxwallet.keys import Address, check_network_and_key
+from fluxwallet.keys import Address, HDKey, check_network_and_key
 from fluxwallet.mnemonic import Mnemonic
 from fluxwallet.networks import Network
 from fluxwallet.scripts import Script
 from fluxwallet.services.services import Service
 from fluxwallet.transactions import (
     BaseTransaction,
+    BitcoinTransaction,
     FluxTransaction,
     Input,
     Output,
-    BitcoinTransaction,
 )
 from fluxwallet.values import Value, value_to_satoshi
-
 
 _logger = logging.getLogger(__name__)
 
@@ -743,7 +742,7 @@ class WalletTransaction:
         self.hdwallet._commit()
         return res
 
-    async def store_backup_from_other_file(self):
+    async def store(self):
         """
         Store this transaction to database
 

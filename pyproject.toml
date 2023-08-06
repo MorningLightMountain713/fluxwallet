@@ -1,25 +1,23 @@
 [tool.poetry]
 name = "fluxwallet"
-version = "0.0.6"
-description = "A Wallet implementation for Flux (based on fluxwallet)"
-authors = ["David White"]
-license = "MIT"
-repository = ""
-homepage = ""
+version = "0.1.0"
+description = "A Wallet implementation for Flux"
+authors = ["David White <dr.white.nz@gmail.com>"]
+license = "bsd 3-clause"
+readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-requests= "^2.25.0"
-fastecdsa = {version = "^2.2.1", markers = "sys_platform != 'win32'"}
-ecdsa = {version= "^0.17", platform = "win32"}
-pycryptodome= "^3.14.1"
-SQLAlchemy="^1.4.28"
-numpy="^1.21.0"
+# requests = "^2.25.0"
+httpx = "^0.24.1"
+aiosqlite = "^0.19.0"
+fastecdsa = { version = "^2.2.1", markers = "sys_platform != 'win32'" }
+ecdsa = { version = "^0.17", platform = "win32" }
+pycryptodome = "^3.14.1"
+SQLAlchemy = "^1.4.28"
+numpy = "^1.21.0"
 
 [tool.poetry.dev-dependencies]
-
-[tool.poetry.scripts]
-fluxwallet = "fluxwallet.tools.clw:entrypoint"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

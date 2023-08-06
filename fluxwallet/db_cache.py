@@ -30,6 +30,7 @@
 #     # compat.register()
 #     pass  # Only necessary when mysql or postgres is used
 from __future__ import annotations
+
 from urllib.parse import urlparse
 
 from sqlalchemy import (
@@ -44,19 +45,14 @@ from sqlalchemy import (
     String,
     text,
 )
-from sqlalchemy.orm import (
-    DeclarativeBase,
-    relationship,
-)
-
 from sqlalchemy.event import listen
-from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.ext.asyncio import (
     AsyncAttrs,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.ext.asyncio.engine import AsyncEngine
 
 # from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import (

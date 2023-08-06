@@ -19,6 +19,7 @@
 #
 from __future__ import annotations
 
+import time
 from urllib.parse import urlparse
 
 from sqlalchemy import (
@@ -32,18 +33,18 @@ from sqlalchemy import (
     LargeBinary,
     Sequence,
     String,
+    TypeDecorator,
     UniqueConstraint,
     select,
 )
-import time
 from sqlalchemy.event import listen
-from sqlalchemy.ext.asyncio.engine import AsyncEngine
 from sqlalchemy.ext.asyncio import (
     AsyncAttrs,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.ext.asyncio.engine import AsyncEngine
 
 # from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import (
@@ -54,6 +55,9 @@ from sqlalchemy.orm import (
     relationship,
 )
 
+from fluxwallet.encoding import aes_decrypt, aes_encrypt
+
+# fix this
 from fluxwallet.main import *
 
 _logger = logging.getLogger(__name__)
@@ -64,6 +68,84 @@ _logger = logging.getLogger(__name__)
 #     length = type_.length
 #     element = "BLOB" if not length else "VARBINARY(%d)" % length
 #     return element
+
+# import hashlib
+# hashlib.sha256(bytes(pwd, 'utf8')).digest() (was hexdigest)
+#             key = bytes().fromhex(DB_FIELD_ENCRYPTION_KEY)
+
+
+class DbError(Exception):
+    """
+    Handle Db class Exceptions
+
+    """
+
+    def __init__(self, msg=""):
+        self.msg = msg
+        _logger.error(msg)
+
+    def __str__(self):
+        return self.msg
+
+
+class DbDecryptionError(DbError):
+    pass
+
+
+class EncryptedBinary(TypeDecorator):
+    """
+    FieldType for encrypted Binary storage using EAS encryption
+    """
+
+    impl = LargeBinary
+    cache_ok = True
+    key = None
+    encryption_enabled = False
+
+    def process_bind_param(self, value, dialect):
+        if value is None or self.key is None or not self.encryption_enabled:
+            return value
+        return aes_encrypt(value, self.key)
+
+    def process_result_value(self, value, dialect):
+        if value is None or self.key is None or not self.encryption_enabled:
+            return value
+
+        try:
+            response = aes_decrypt(value, self.key)
+        except ValueError:
+            raise DbDecryptionError() from None
+
+        return response
+
+
+class EncryptedString(TypeDecorator):
+    """
+    FieldType for encrypted String storage using EAS encryption
+    """
+
+    impl = String
+    cache_ok = True
+    key = None
+    encryption_enabled = False
+
+    def process_bind_param(self, value, dialect):
+        if value is None or self.key is None or not self.encryption_enabled:
+            return value
+        if not isinstance(value, bytes):
+            value = bytes(value, "utf8")
+        return aes_encrypt(value, self.key)
+
+    def process_result_value(self, value, dialect):
+        if value is None or self.key is None or not self.encryption_enabled:
+            return value
+
+        try:
+            response = aes_decrypt(value, self.key).decode("utf8")
+        except ValueError:
+            raise DbDecryptionError() from None
+
+        return response
 
 
 class Db:
@@ -97,8 +179,9 @@ class Db:
                 await conn.run_sync(Base.metadata.create_all)
 
             await self._import_config_data()
-            self._session = self.sessionmaker()
             Db._built = True
+
+        self._session = self.sessionmaker()
 
         return self._session
 
@@ -110,27 +193,10 @@ class Db:
     def __init__(self, db_uri=None, *, sessionmaker: async_sessionmaker | None = None):
         if db_uri is None:
             db_uri = DEFAULT_DATABASE
-        # self.o = urlparse(db_uri)
-        # if (
-        #     not self.o.scheme or len(self.o.scheme) < 2
-        # ):  # Dirty hack to avoid issues with urlparse on Windows confusing drive with scheme
-        #     if password:
-        #         # Warning: This requires the pysqlcipher3 module
-        #         db_uri = (
-        #             "sqlite+pysqlcipher://:%s@/%s?cipher=aes-256-cfb&kdf_iter=64000"
-        #             % (password, db_uri)
-        #         )
-        #     else:
+
         db_uri = f"sqlite+aiosqlite:///{db_uri}"
 
-        # if db_uri.startswith("sqlite+aiosqlite://") and ALLOW_DATABASE_THREADS:
-        #     db_uri += "&" if "?" in db_uri else "?"
-        #     db_uri += "check_same_thread=False"
-
-        # if self.o.scheme == "mysql":
-        #     db_uri += "&" if "?" in db_uri else "?"
-        #     db_uri += "binary_prefix=true"
-        # self.engine = create_engine(db_uri, isolation_level="READ UNCOMMITTED")
+        self.encrypted = False
         self.engine = create_async_engine(db_uri, isolation_level="READ UNCOMMITTED")
         self.sessionmaker = async_sessionmaker(self.engine, expire_on_commit=False)
 
@@ -145,7 +211,6 @@ class Db:
         #     )
         # )
         self.db_uri = db_uri
-        self._session = self.sessionmaker()
 
         # version_db = (
         #     self.session.query(DbConfig.value).filter_by(variable="version").scalar()
@@ -158,9 +223,9 @@ class Db:
     #         close_all_sessions()
     #         Base.metadata.drop_all(self.engine)
 
-    @property
-    def session(self) -> AsyncSession:
-        return self._session
+    # @property
+    # def session(self) -> AsyncSession:
+    #     return self._session
 
     def set_sqlite_pragma(self, dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
@@ -175,9 +240,56 @@ class Db:
         session = self.sessionmaker()
         return session
 
-    async def _import_config_data(self):
-        print("IMPORT CONFIG")
+    def set_encrypted(self) -> None:
+        self.encrypted = True
+        EncryptedBinary.encryption_enabled = True
+        EncryptedString.encryption_enabled = True
+
+    async def validate_key(self) -> bool:
         async with self.sessionmaker() as session:
+            try:
+                await session.scalars(select(DbKey.wif).limit(1))
+            except DbDecryptionError:
+                return False
+        return True
+
+    def set_encrypted_key(self, key: str) -> None:
+        EncryptedBinary.key = bytes().fromhex(key)
+        EncryptedString.key = bytes().fromhex(key)
+
+    async def set_db_encryption(self, key: str):
+        self.set_encrypted()
+        self.set_encrypted_key(key)
+
+        async with self.sessionmaker() as session:
+            res = await session.scalars(
+                select(DbConfig).filter_by(variable="encrypted")
+            )
+
+            encrypted = res.first()
+            encrypted.value = "YES"
+
+            await session.commit()
+
+    async def _import_config_data(self):
+        async with self.sessionmaker() as session:
+            res = await session.scalars(
+                select(DbConfig.value).filter_by(variable="encrypted")
+            )
+
+            encrypted = res.first()
+
+            if encrypted == "YES":
+                self.set_encrypted()
+
+                res = await session.scalars(select(DbKey.wif).limit(1))
+                key = res.first()
+
+                if key and isinstance(key, str) and key.startswith("xprv"):
+                    raise DbError(
+                        "DbConfig states DB is encrypted, however private keys are unencrypted"
+                    )
+
             stmt = select(DbConfig.value).filter_by(variable="installation_date")
             result = await session.execute(stmt)
             installation_date = result.first()
@@ -189,6 +301,8 @@ class Db:
                 await session.merge(
                     DbConfig(variable="installation_date", value=str(datetime.now()))
                 )
+                await session.merge(DbConfig(variable="encrypted", value="NO"))
+
                 url = ""
                 try:
                     url = str(session.bind.url)
@@ -402,13 +516,14 @@ class DbKey(Base):
         LargeBinary(128), index=True, doc="Bytes representation of public key"
     )
     private = Column(
-        LargeBinary(128), index=True, doc="Bytes representation of private key"
+        EncryptedBinary(48), index=True, doc="Bytes representation of private key"
     )
     wif = Column(
-        String(255),
+        EncryptedString(255),
         index=True,
         doc="Public or private WIF (Wallet Import Format) representation",
     )
+
     compressed = Column(
         Boolean, default=True, doc="Is key compressed or not. Default is True"
     )

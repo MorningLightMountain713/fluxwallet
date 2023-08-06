@@ -102,26 +102,26 @@ class WalletKey:
         """
         key_is_address = False
         if isinstance(key, HDKey):
-            _key = key
+            hd_key = key
             if network is None:
-                network = _key.network.name
-            elif network != _key.network.name:
+                network = hd_key.network.name
+            elif network != hd_key.network.name:
                 raise WalletError(
                     "Specified network and key network should be the same"
                 )
         elif isinstance(key, Address):
-            _key = key
+            hd_key = key
             key_is_address = True
             if network is None:
-                network = _key.network.name
-            elif network != _key.network.name:
+                network = hd_key.network.name
+            elif network != hd_key.network.name:
                 raise WalletError(
                     "Specified network and key network should be the same"
                 )
         else:  # str | bytes
             if network is None:
                 network = DEFAULT_NETWORK
-            _key = HDKey(import_key=key, network=network)
+            hd_key = HDKey(import_key=key, network=network)
 
         if not encoding and witness_type:
             encoding = get_encoding_from_witness(witness_type)
@@ -134,7 +134,7 @@ class WalletKey:
                     select(DbKey).filter(
                         DbKey.wallet_id == wallet_id,
                         DbKey.wif
-                        == _key.wif(
+                        == hd_key.wif(
                             witness_type=witness_type,
                             multisig=multisig,
                             is_private=True,
@@ -142,27 +142,29 @@ class WalletKey:
                     )
                 )
 
-                key_exists = res.first()
+                existing_db_key = res.first()
 
-                if key_exists:
+                if existing_db_key:
                     _logger.warning(
-                        "Key already exists in this wallet. Key ID: %d" % key_exists.id
+                        "Key already exists in this wallet. Key ID: %d"
+                        % existing_db_key.id
                     )
-                    return WalletKey(key_exists.id, _key)
+                    await existing_db_key.awaitable_attrs.wallet
+                    return WalletKey(existing_db_key, hd_key)
 
-                if key_type != "single" and _key.depth != len(path.split("/")) - 1:
-                    if path == "m" and _key.depth > 1:
+                if key_type != "single" and hd_key.depth != len(path.split("/")) - 1:
+                    if path == "m" and hd_key.depth > 1:
                         path = "M"
 
-                address = _key.address(encoding=encoding, script_type=script_type)
+                address = hd_key.address(encoding=encoding, script_type=script_type)
 
                 res = await session.scalars(
                     select(DbKey).where(
                         DbKey.wallet_id == wallet_id,
                         or_(
-                            DbKey.public == _key.public_byte,
+                            DbKey.public == hd_key.public_byte,
                             DbKey.wif
-                            == _key.wif(
+                            == hd_key.wif(
                                 witness_type=witness_type,
                                 multisig=multisig,
                                 is_private=False,
@@ -174,34 +176,36 @@ class WalletKey:
                 db_key = res.first()
 
                 if db_key:
-                    db_key.wif = _key.wif(
+                    db_key.wif = hd_key.wif(
                         witness_type=witness_type, multisig=multisig, is_private=True
                     )
                     db_key.is_private = True
-                    db_key.private = _key.private_byte
-                    db_key.public = _key.public_byte
+                    db_key.private = hd_key.private_byte
+                    db_key.public = hd_key.public_byte
                     db_key.path = path
 
-                    session.commit()
-                    return WalletKey(db_key, _key)
+                    await session.commit()
+                    await db_key.awaitable_attrs.wallet
+
+                    return WalletKey(db_key, hd_key)
 
                 new_db_key = DbKey(
                     name=name[:80],
                     wallet_id=wallet_id,
-                    public=_key.public_byte,
-                    private=_key.private_byte,
+                    public=hd_key.public_byte,
+                    private=hd_key.private_byte,
                     purpose=purpose,
                     account_id=account_id,
-                    depth=_key.depth,
+                    depth=hd_key.depth,
                     change=change,
-                    address_index=_key.child_index,
-                    wif=_key.wif(
+                    address_index=hd_key.child_index,
+                    wif=hd_key.wif(
                         witness_type=witness_type, multisig=multisig, is_private=True
                     ),
                     address=address,
                     parent_id=parent_id,
-                    compressed=_key.compressed,
-                    is_private=_key.is_private,
+                    compressed=hd_key.compressed,
+                    is_private=hd_key.is_private,
                     path=path,
                     key_type=key_type,
                     network_name=network,
@@ -211,7 +215,7 @@ class WalletKey:
             else:
                 res = await session.scalars(
                     select(DbKey).where(
-                        DbKey.wallet_id == wallet_id, DbKey.address == _key.address
+                        DbKey.wallet_id == wallet_id, DbKey.address == hd_key.address
                     )
                 )
                 existing_db_key = res.first()
@@ -220,18 +224,20 @@ class WalletKey:
                     _logger.warning(
                         "Key with ID %s already exists" % existing_db_key.id
                     )
-                    return WalletKey(existing_db_key, _key)
+
+                    await existing_db_key.awaitable_attrs.wallet
+                    return WalletKey(existing_db_key, hd_key)
 
                 new_db_key = DbKey(
                     name=name[:80],
                     wallet_id=wallet_id,
                     purpose=purpose,
                     account_id=account_id,
-                    depth=_key.depth,
+                    depth=hd_key.depth,
                     change=change,
-                    address=_key.address(),
+                    address=hd_key.address(),
                     parent_id=parent_id,
-                    compressed=_key.compressed,
+                    compressed=hd_key.compressed,
                     is_private=False,
                     path=path,
                     key_type=key_type,
@@ -242,10 +248,11 @@ class WalletKey:
 
             await session.merge(DbNetwork(name=network))
             session.add(new_db_key)
+
             await session.commit()
             await new_db_key.awaitable_attrs.wallet
 
-        return WalletKey(new_db_key, _key)
+        return WalletKey(new_db_key, hd_key)
 
     # def _commit(self):
     #     try:
@@ -269,6 +276,7 @@ class WalletKey:
         self.dbkey = db_key
         self.hdkey = hdkey
 
+        # fix this
         if hdkey and isinstance(hdkey, HDKey):
             assert not self.dbkey.public or self.dbkey.public == hdkey.public_byte
             assert not self.dbkey.private or self.dbkey.private == hdkey.private_byte

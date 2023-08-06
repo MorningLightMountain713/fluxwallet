@@ -21,11 +21,10 @@
 import asyncio
 import binascii
 import logging
-from datetime import datetime
-from decimal import Decimal
-
 from collections.abc import Iterator
 from contextlib import aclosing
+from datetime import datetime
+from decimal import Decimal
 
 import httpx
 from rich.pretty import pprint
@@ -162,6 +161,7 @@ class FluxClient(BaseClient):
     async def blockcount(self) -> int:
         # return self.compose_request("daemon/getblockcount")["data"]
         res: dict = await anext(self.do_get("daemon/getblockcount"))
+        print(res)
         return res.get("data", 0)
 
     async def sendrawtransaction(self, rawtx: str) -> dict[str, dict]:
@@ -174,8 +174,17 @@ class FluxClient(BaseClient):
             "daemon/sendrawtransaction", post_data={"hexstring": rawtx}
         )
 
+        try:
+            res.raise_for_status()
+        except httpx.RequestError:
+            return
+
+        tx_res = res.json()
+
+        print(tx_res)
+
         return {
-            "txid": res["data"],
+            "txid": tx_res["data"],
         }
 
     # async def gettransaction(self, txid: str):
@@ -189,10 +198,14 @@ class FluxClient(BaseClient):
     #     return tx
 
     async def get_transactions(self, txids: list[str]):
-        txs: list[dict] = await self.do_get(
-            "tx", base_url="https://explorer.runonflux.io/api/", targets=txids
-        )
+        txs: list[dict] = []
+
+        paths = [f"tx/{txid}" for txid in txids]
+
+        tx_gen = self.do_get(paths, base_url="https://explorer.runonflux.io/api/")
         # {'status': 404, 'url': '/api/tx/', 'error': 'Not found'}
+        async for tx_group in tx_gen:
+            txs.extend(tx_group)
 
         txs = sorted(txs, key=lambda x: x["blockheight"])
         tx_objects = [self.load_tx(tx) for tx in txs]
@@ -361,10 +374,11 @@ class FluxClient(BaseClient):
             "User-Agent": f"fluxwallet/{FLUXWALLET_VERSION}",
             "Accept": "application/json",
         }
-        transport = httpx.AsyncHTTPTransport(retries=5)
-
+        transport = httpx.AsyncHTTPTransport(retries=6)
+        timeout = httpx.Timeout(10.0, connect=5.0)
+        # pprint(paths)
         async with httpx.AsyncClient(
-            base_url=base_url, headers=headers, transport=transport
+            base_url=base_url, headers=headers, transport=transport, timeout=timeout
         ) as client:
             # this doesn't mix in the client options (have to build request)
             # req = httpx.Request(http_verb, uri)
@@ -423,7 +437,8 @@ class FluxClient(BaseClient):
                 else:
                     result = result.json()
                     if single_result:
-                        print("yielding single!!!")
+                        # print("HTTX RESULT")
+                        # pprint(result)
                         yield result
 
                     results.append(result)
@@ -450,5 +465,9 @@ class FluxClient(BaseClient):
                 print(f"Warning: Retrying {len(to_retry)} endpoints")
                 if len(to_retry) == 1:
                     print(f"Retrying: {to_retry[0]}")
+
+                if single_result:
+                    to_retry = str(to_retry[0])  # it's a URL object
+
                 async for result in self.do_get(to_retry):
                     yield result
