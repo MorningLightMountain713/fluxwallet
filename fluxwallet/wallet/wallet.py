@@ -645,6 +645,8 @@ class Wallet:
         self.depth_public_master = 0
         self.parent_id = db_wallet.parent_id
 
+        self.last_scanned_height: int = 0
+
     # def __exit__(self, exception_type, exception_value, traceback):
     #     try:
     #         self._session.close()
@@ -1341,8 +1343,12 @@ class Wallet:
             cache_uri=self.db_cache_uri,
         )
 
-        # populate cache
-        await srv.blockcount()
+        # populate cache (3 seconds)
+        blockcount = await srv.blockcount()
+        if not rescan_used and not blockcount > self.last_scanned_height:
+            return set()
+
+        self.last_scanned_height = blockcount
 
         # Update already known transactions with known block height
         background_tasks.append(
