@@ -16,6 +16,7 @@ from rich.pretty import pprint
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 
 from fluxwallet.config.config import DEFAULT_DATABASE, DEFAULT_WITNESS_TYPE
 from fluxwallet.db_new import (
@@ -3122,6 +3123,116 @@ class Wallet:
         utxos = {(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.tx.inputs}
         return utxos
 
+    # testing
+    async def store_transactions(self, txs: list[WalletTransaction]) -> set:
+        utxo_set = set()
+
+        async with self.db.get_session() as session:
+            for wt in txs:
+                # hack
+                version = 4 if wt.tx.network.name == "flux" else 1
+
+                # figure it's better to try store than to select. As another
+                # task might be just about to flush the session. This method
+                # gets called from each scan_key. Txs an go between keys etc
+
+                new_tx = DbTransaction(
+                    wallet_id=self.wallet_id,
+                    version=version,
+                    txid=bytes.fromhex(wt.tx.txid),
+                    block_height=wt.tx.block_height,
+                    size=wt.tx.size,
+                    confirmations=wt.tx.confirmations,
+                    date=wt.tx.date,
+                    fee=wt.tx.fee,
+                    status=wt.status,
+                    input_total=wt.tx.input_total,
+                    output_total=wt.tx.output_total,
+                    network_name=wt.tx.network.name,
+                    raw=wt.tx.rawtx,
+                    verified=wt.tx.verified,
+                    account_id=wt.account_id,
+                    coinbase=wt.tx.coinbase,
+                    expiry_height=wt.tx.expiry_height,
+                )
+
+                session.add(new_tx)
+
+                try:
+                    await session.flush()
+                except IntegrityError:
+                    await session.rollback()
+                    continue
+
+                txidn = new_tx.id
+
+                for ti in wt.tx.inputs:
+                    res = await session.scalars(
+                        select(DbKey).filter_by(
+                            wallet_id=self.wallet_id, address=ti.address
+                        )
+                    )
+                    tx_key = res.first()
+
+                    key_id = None
+                    if tx_key:
+                        key_id = tx_key.id
+                        tx_key.used = True
+
+                    witnesses = int_to_varbyteint(len(ti.witnesses)) + b"".join(
+                        [bytes(varstr(w)) for w in ti.witnesses]
+                    )
+
+                    new_tx_inp = DbTransactionInput(
+                        transaction_id=txidn,
+                        output_n=ti.output_n_int,
+                        key_id=key_id,
+                        value=ti.value,
+                        prev_txid=ti.prev_txid,
+                        index_n=ti.index_n,
+                        double_spend=ti.double_spend,
+                        script=ti.unlocking_script,
+                        script_type=ti.script_type,
+                        witness_type=ti.witness_type,
+                        sequence=ti.sequence,
+                        address=ti.address,
+                        witnesses=witnesses,
+                    )
+                    session.add(new_tx_inp)
+
+                for to in wt.tx.outputs:
+                    res = await session.scalars(
+                        select(DbKey).filter_by(
+                            wallet_id=self.wallet_id, address=to.address
+                        )
+                    )
+                    tx_key = res.first()
+                    key_id = None
+
+                    if tx_key:
+                        key_id = tx_key.id
+                        tx_key.used = True
+
+                    spent = to.spent
+
+                    new_tx_out = DbTransactionOutput(
+                        transaction_id=txidn,
+                        output_n=to.output_n,
+                        key_id=key_id,
+                        address=to.address,
+                        value=to.value,
+                        spent=spent,
+                        script=to.lock_script,
+                        script_type=to.script_type,
+                    )
+                    session.add(new_tx_out)
+
+                for ti in wt.tx.inputs:
+                    utxo_set.add((ti.prev_txid.hex(), ti.output_n_int))
+                await session.flush()
+            await session.commit()
+        return utxo_set
+
     async def transactions_update(
         self,
         account_id: int | None = None,
@@ -3155,6 +3266,17 @@ class Wallet:
 
         :return int: Number of transactions that were discovered.
         """
+
+        # print("TRANSACTIONS UPDATE")
+        # print("ACCOUNT ID", account_id)
+        # print("USED", used)
+        # print("ETNWORK", network)
+        # print("HEY ID", key_id)
+        # print("DEPTH", depth)
+        # print("CHANGE", change)
+        # print("LIMIT", limit)
+        # print("UPDATE CONF", update_confirmations)
+
         network, account_id, _ = await self._get_account_defaults(
             network, account_id, key_id
         )
@@ -3181,56 +3303,37 @@ class Wallet:
             depth=depth,
         )
 
-        all_addresslist = await self.addresslist()
-        last_updated = datetime.now()
+        self.last_updated = datetime.now()
 
-        # Get transactions for wallet's addresses
-        # txs: list[BaseTransaction] = []
         new_txids = set()
-        tx_count = 0
 
         for address in addresslist:
-            last_tx_index = await self.transaction_last(address, by_index=True)
+            tx_count = 0
 
+            last_tx_index = await self.transaction_last(address, by_index=True)
             tx_generator = srv.get_transactions_by_address(
                 address,
                 limit=limit,
                 after_tx_index=last_tx_index,
             )
 
-            # txs.extend(
-            #     await srv.get_transactions_by_address(
-            #         address,
-            #         limit=limit,
-            #         after_txid=await self.transaction_last(address),
-            #     )
-            # )
-
-            # if not srv.complete:  # if we're over the limit
-            #     if txs and txs[-1].date and txs[-1].date < last_updated:
-            #         last_updated = txs[-1].date
-
-            # last_txid = None
             utxo_set = set()
+
             async for txs in tx_generator:
                 tx_count += len(txs)
-                # if txs and not last_txid and txs[0].confirmations:
-                #     last_txid = txs[0].txid
 
-                # if txs is False:
-                #     raise WalletError(
-                #         "No response from any service provider, could not update transactions"
-                #     )
+                wallet_txs = []
+                for tx in txs:
+                    # tx's can be between keys in the same wallet (or same key)
+                    # do our best to filter these out
+                    if not tx.txid in new_txids:
+                        wallet_txs.append(
+                            WalletTransaction(self, tx, addresslist=addresslist)
+                        )
+                        new_txids.add(tx.txid)
 
-                # Update Transaction outputs to get list of unspent outputs (UTXO's)
-
-                tasks = []
-                for t in txs:
-                    new_txids.add(t.txid)
-                    tasks.append(self.create_and_store_wallet_tx(t, all_addresslist))
-
-                results = await asyncio.gather(*tasks)
-                utxo_set.update(*results)
+                utxos = await self.store_transactions(wallet_txs)
+                utxo_set.update(utxos)
 
             async with self.db.get_session() as session:
                 for utxo in utxo_set:
@@ -3248,8 +3351,6 @@ class Wallet:
 
                     for u in tos:
                         u.spent = True
-
-                self.last_updated = last_updated
 
                 # if last_txid:
                 #     res = await session.execute(
@@ -3275,9 +3376,6 @@ class Wallet:
         await self._balance_update(
             account_id=account_id, network=network, key_id=key_id
         )
-
-        # while not self.wallet_tx_queue.empty():
-        #     await asyncio.sleep(0.1)
 
         return new_txids
 
@@ -3495,7 +3593,7 @@ class Wallet:
             # changed this from block_height to date. As unconfirmed don't have block height
             stmt = stmt.order_by(DbTransaction.date.desc())
 
-            txs: list[WalletTransaction] = []
+            # txs: list[WalletTransaction] = []
             if limit:
                 stmt = stmt.limit(limit)
             if offset:
@@ -3504,18 +3602,21 @@ class Wallet:
             res = await session.execute(stmt)
             found_txs = res.all()
 
-        txs = []
+        # txs = []
 
         total = len(found_txs)
         complete = 0
         step = 20
         while complete <= total:
-            txs = []
+            # txs = []
+            tasks = []
             end = complete + step
             for tx in found_txs[complete:end]:
-                txs.append(await self.transaction(tx.txid.hex(), addresslist))
+                tasks.append(self.transaction(tx.txid.hex(), addresslist))
+                # txs.append(await self.transaction(tx.txid.hex(), addresslist))
 
             complete += step
+            txs = await asyncio.gather(*tasks)
 
             if txs:
                 yield txs

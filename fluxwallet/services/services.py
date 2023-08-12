@@ -558,6 +558,7 @@ class Service(metaclass=SingletonNetwork):
 
         if txs_cache:
             txs_cache = transaction_update_spents(txs_cache, address)
+            print("Yielding from cache")
             yield txs_cache
 
         # Get (extra) transactions from service providers
@@ -627,7 +628,7 @@ class Service(metaclass=SingletonNetwork):
                 #     address, last_block, last_txid=last_txid, txs_complete=True
                 # )
 
-                # tasks = []
+                # speed this up
                 for t in txs:
                     # asyncio.create_task(self.cache.store_transaction(t))
                     await self.cache.store_transaction(t)

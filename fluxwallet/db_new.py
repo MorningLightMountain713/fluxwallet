@@ -235,8 +235,7 @@ class Db:
         cursor.close()
         # print("Engine connected")
 
-    def get_session(self):
-        start = time.perf_counter()
+    def get_session(self) -> AsyncSession:
         session = self.sessionmaker()
         return session
 
@@ -670,6 +669,7 @@ class DbTransaction(Base):
         Integer,
         Sequence("transaction_id_seq"),
         primary_key=True,
+        autoincrement=True,
         doc="Unique transaction index for internal usage",
     )
     txid = Column(

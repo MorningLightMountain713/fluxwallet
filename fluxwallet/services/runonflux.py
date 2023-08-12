@@ -216,9 +216,8 @@ class FluxClient(BaseClient):
         self, address: str, after_tx_index: int = 0, limit: int = 0
     ) -> Iterator[list[FluxTransaction]]:
         # get lastest txid and count
-        params = {"from": 0, "to": 1}
+        params = {"from": 0, "to": 1, "noAsm": 1}
 
-        after_txid_index = None
         # https://explorer.runonflux.io/api/addrs/t1XvGeQCfYMhfagYb3GmbKRajNEjpPRZHkB/txs?from=0&to=1&noAsm=1&noScriptSig=1
 
         # don't use generator for single items, or just use for to get the single item so we don't have to use aclosing
@@ -231,63 +230,43 @@ class FluxClient(BaseClient):
         ) as gen:
             res: dict = await anext(gen)
 
-        txs: list[dict] = res.get("items", [])
+        first_tx: list[dict] = res.get("items", [])
         tx_count: int = res.get("totalItems", 0)
 
-        if not txs:
+        if not first_tx:
             return
 
-        if tx_count == 1:
-            yield [self.load_tx(txs[0])]
+        # this should always be greater than 0, but, you konw
+        new_txs = max(0, tx_count - after_tx_index)
+
+        if not new_txs:
             return
 
-        # if after_txid:
-        #     target_tx = next(filter(lambda x: x["txid"] == after_txid, txs), None)
-        #     if target_tx:
-        #         after_txid_index = txids.index(target_tx) + 1
+        if new_txs == 1:
+            yield [self.load_tx(first_tx[0])]
 
-        # from_tx = after_txid_index if after_txid_index else 0
-
-        # this is always 0, newest
-        from_tx = 0
-        to_tx = (tx_count - after_tx_index) + 1
+        # this is always 1, we already have 0
+        from_tx = 1
 
         tx_generator = self.do_get(
             paths=f"/api/addrs/{address}/txs",
             base_url="https://explorer.runonflux.io",
-            pages=(from_tx, to_tx),
+            pages=(from_tx, new_txs),
             chunksize=1,
+            params={"noAsm": 1},
         )
 
-        # tx_generator = self.do_get(
-        #     paths=["/api/txs"],
-        #     base_url="https://explorer.runonflux.io",
-        #     params=params,
-        # )
-
-        # total_count = 0
         async for batch in tx_generator:
             txs = []
+            # fix this
+            if first_tx:
+                txs.append(first_tx[0])
+                first_tx = None
+
             for result in batch:
-                # total_count += len(result.get("txs", []))
                 txs.extend(result.get("items"))
+
             yield [self.load_tx(tx) for tx in txs]
-
-        # print("TOTAL COUNT", total_count)
-
-        # target_blockheight = 0
-        # if target_tx:
-        #     target_blockheight = target_tx["blockheight"]
-
-        # if target_blockheight:
-        #     txs = list(
-        #         filter(
-        #             lambda x: x["blockheight"] >= target_blockheight
-        #             and x["txid"] != after_txid,
-        #             txs,
-        #         )
-        #     )
-        #     txs = sorted(txs, key=lambda x: x["blockheight"])
 
     # async def get_pages_for_item(
     #     self,
@@ -370,59 +349,65 @@ class FluxClient(BaseClient):
         if not base_url:
             base_url = self.base_url
 
+        if not params:
+            params = {}
+
         headers = {
             "User-Agent": f"fluxwallet/{FLUXWALLET_VERSION}",
             "Accept": "application/json",
         }
+
         transport = httpx.AsyncHTTPTransport(retries=6)
         timeout = httpx.Timeout(10.0, connect=5.0)
-        # pprint(paths)
+
         async with httpx.AsyncClient(
             base_url=base_url, headers=headers, transport=transport, timeout=timeout
         ) as client:
             # this doesn't mix in the client options (have to build request)
             # req = httpx.Request(http_verb, uri)
-            if not params:
-                params = {}
 
             single_result = False
             if isinstance(paths, str):
                 paths = [paths]
                 single_result = True
 
-            if pages:
+            # this is really implementation dependent. Should be passed in from
+            # upper layer i.e. pageNum and from/to
+            if not pages:
+                tasks = [client.get(path, params=params) for path in paths]
+            else:
+                # this is super fucking ugly
+                # don't think this is used anymore??!??
                 if isinstance(pages, int):
+                    ...
+                    # tasks = [
+                    #     client.get(
+                    #         paths[0],
+                    #         params=params | {"pageNum": page},
+                    #     )
+                    #     # this doesn't make sense - it's coupled with a particular api
+                    #     for page in range(2, pages + 1)
+                    # ]
+                else:  # tuple (from, to)
+                    single_result = False
+                    RESPONSE_SIZE = 20
+
+                    from_tx, to_tx = pages
+
+                    increments = list(range(from_tx, to_tx, RESPONSE_SIZE))
+
+                    if to_tx % RESPONSE_SIZE:
+                        increments.append(to_tx)
+
+                    windows = [*zip(increments, increments[1::])]
+
                     tasks = [
                         client.get(
                             paths[0],
-                            params=params | {"pageNum": page},
+                            params=params | {"from": window[0], "to": window[1]},
                         )
-                        # we already have the first page
-                        for page in range(2, pages + 1)
+                        for window in windows
                     ]
-                else:  # tuple (from, to)
-                    # fix if response to_x < response size, also missing last group
-                    single_result = False
-                    from_tx, to_tx = pages
-                    response_size = 20
-
-                    if to_tx < response_size:
-                        ranges = [(0, 20)]
-                    else:
-                        to_tx = response_size * round(to_tx / response_size)
-
-                        ranges = list(range(from_tx, to_tx + 1, response_size))
-                        ranges = [*zip(ranges, ranges[1::])]
-
-                    tasks = [
-                        client.get(
-                            paths[0], params=params | {"from": range[0], "to": range[1]}
-                        )
-                        for range in ranges
-                    ]
-
-            else:
-                tasks = [client.get(path, params=params) for path in paths]
 
             results = []
             to_retry = []

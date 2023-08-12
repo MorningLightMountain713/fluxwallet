@@ -4266,6 +4266,7 @@ class Wallet:
             wt.store()
             utxos = [(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.inputs]
             utxo_set.update(utxos)
+
         for utxo in list(utxo_set):
             tos = (
                 self._session.query(DbTransactionOutput)

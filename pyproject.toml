@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fluxwallet"
-version = "0.1.3"
+version = "0.1.4"
 description = "A Wallet implementation for Flux"
 authors = ["David White <dr.white.nz@gmail.com>"]
 license = "bsd 3-clause"

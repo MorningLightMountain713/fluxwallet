@@ -745,6 +745,261 @@ class WalletTransaction:
 
         return txidn
 
+    async def store_old(self):
+        """
+        Store this transaction to database
+
+        :return int: Transaction index number
+        """
+        async with self.hdwallet.db.get_session() as session:
+            # If txid is unknown add it to database, else update
+            res = await session.scalars(
+                select(DbTransaction).filter(
+                    DbTransaction.wallet_id == self.hdwallet.wallet_id,
+                    DbTransaction.txid == bytes.fromhex(self.tx.txid),
+                )
+            )
+            db_tx = res.first()
+
+            if not db_tx:
+                res = await session.scalars(
+                    select(DbTransaction).filter(
+                        DbTransaction.wallet_id.is_(None),
+                        DbTransaction.txid == bytes.fromhex(self.tx.txid),
+                    )
+                )
+                db_tx = res.first()
+
+                if db_tx:
+                    db_tx.wallet_id = self.hdwallet.wallet_id
+
+            rolled_back = False
+            if not db_tx:
+                # seems dodgey
+                version = 4 if self.tx.network.name == "flux" else 1
+
+                new_tx = DbTransaction(
+                    wallet_id=self.hdwallet.wallet_id,
+                    version=version,
+                    txid=bytes.fromhex(self.tx.txid),
+                    block_height=self.tx.block_height,
+                    size=self.tx.size,
+                    confirmations=self.tx.confirmations,
+                    date=self.tx.date,
+                    fee=self.tx.fee,
+                    status=self.status,
+                    input_total=self.tx.input_total,
+                    output_total=self.tx.output_total,
+                    network_name=self.tx.network.name,
+                    raw=self.tx.rawtx,
+                    verified=self.tx.verified,
+                    account_id=self.account_id,
+                    coinbase=self.tx.coinbase,
+                    expiry_height=self.tx.expiry_height,
+                )
+                session.add(new_tx)
+                try:
+                    await session.commit()
+
+                except IntegrityError:
+                    print("ROLLEDBACK")
+                    _logger.info(
+                        f"Rolling back this transaction, already stored for tx: {self.tx.txid}"
+                    )
+                    await session.rollback()
+                    rolled_back = True
+
+                except Exception as e:  # pragma: no cover
+                    _logger.warning(f"Tx store failure tx: {e}")
+
+                txidn = new_tx.id
+
+            if db_tx or rolled_back:
+                if rolled_back:
+                    res = await session.scalars(
+                        select(DbTransaction).filter(
+                            DbTransaction.wallet_id == self.hdwallet.wallet_id,
+                            DbTransaction.txid == bytes.fromhex(self.tx.txid),
+                        )
+                    )
+                    db_tx = res.first()
+                    _logger.info(f"Found previously stored transaction: {self.tx.txid}")
+
+                txidn = db_tx.id
+                db_tx.block_height = (
+                    self.tx.block_height if self.tx.block_height else db_tx.block_height
+                )
+                db_tx.confirmations = (
+                    self.tx.confirmations
+                    if self.tx.confirmations
+                    else db_tx.confirmations
+                )
+                db_tx.date = self.tx.date if self.tx.date else db_tx.date
+                db_tx.fee = self.tx.fee if self.tx.fee else db_tx.fee
+                db_tx.status = self.status if self.status else db_tx.status
+                db_tx.input_total = (
+                    self.tx.input_total if self.tx.input_total else db_tx.input_total
+                )
+                db_tx.output_total = (
+                    self.tx.output_total if self.tx.output_total else db_tx.output_total
+                )
+                db_tx.network_name = (
+                    self.tx.network.name if self.tx.network.name else db_tx.network_name
+                )
+                db_tx.raw = self.tx.rawtx if self.tx.rawtx else db_tx.raw
+                db_tx.verified = self.tx.verified
+                db_tx.coinbase = self.tx.coinbase
+
+                await session.commit()
+
+            for ti in self.tx.inputs:
+                res = await session.scalars(
+                    select(DbKey).filter_by(
+                        wallet_id=self.hdwallet.wallet_id, address=ti.address
+                    )
+                )
+                tx_key = res.first()
+
+                key_id = None
+                if tx_key:
+                    key_id = tx_key.id
+                    tx_key.used = True
+
+                res = await session.scalars(
+                    select(DbTransactionInput).filter_by(
+                        transaction_id=txidn, index_n=ti.index_n
+                    )
+                )
+                tx_input = res.first()
+
+                if not tx_input:
+                    witnesses = int_to_varbyteint(len(ti.witnesses)) + b"".join(
+                        [bytes(varstr(w)) for w in ti.witnesses]
+                    )
+                    new_tx_item = DbTransactionInput(
+                        transaction_id=txidn,
+                        output_n=ti.output_n_int,
+                        key_id=key_id,
+                        value=ti.value,
+                        prev_txid=ti.prev_txid,
+                        index_n=ti.index_n,
+                        double_spend=ti.double_spend,
+                        script=ti.unlocking_script,
+                        script_type=ti.script_type,
+                        witness_type=ti.witness_type,
+                        sequence=ti.sequence,
+                        address=ti.address,
+                        witnesses=witnesses,
+                    )
+                    session.add(new_tx_item)
+                elif key_id:
+                    tx_input.key_id = key_id
+                    if ti.value:
+                        tx_input.value = ti.value
+                    if ti.prev_txid:
+                        tx_input.prev_txid = ti.prev_txid
+                    if ti.unlocking_script:
+                        tx_input.script = ti.unlocking_script
+
+                rolled_back = False
+                try:
+                    await session.commit()
+
+                except IntegrityError:
+                    print("ROLLEDBACK")
+                    _logger.info(
+                        f"Rolling back this transaction, already stored for tx: {self.tx.txid}"
+                    )
+                    await session.rollback()
+                    rolled_back = True
+
+                except Exception as e:  # pragma: no cover
+                    _logger.warning(f"Tx store failure tx: {e}")
+
+                if rolled_back and key_id:
+                    res = await session.scalars(
+                        select(DbTransactionInput).filter_by(
+                            transaction_id=txidn, index_n=ti.index_n
+                        )
+                    )
+                    tx_input = res.first()
+
+                    tx_input.key_id = key_id
+                    if ti.value:
+                        tx_input.value = ti.value
+                    if ti.prev_txid:
+                        tx_input.prev_txid = ti.prev_txid
+                    if ti.unlocking_script:
+                        tx_input.script = ti.unlocking_script
+
+                    await session.commit()
+
+            for to in self.tx.outputs:
+                res = await session.scalars(
+                    select(DbKey).filter_by(
+                        wallet_id=self.hdwallet.wallet_id, address=to.address
+                    )
+                )
+                tx_key = res.first()
+                key_id = None
+
+                if tx_key:
+                    key_id = tx_key.id
+                    tx_key.used = True
+
+                spent = to.spent
+                res = await session.scalars(
+                    select(DbTransactionOutput).filter_by(
+                        transaction_id=txidn, output_n=to.output_n
+                    )
+                )
+                tx_output = res.first()
+
+                if not tx_output:
+                    new_tx_item = DbTransactionOutput(
+                        transaction_id=txidn,
+                        output_n=to.output_n,
+                        key_id=key_id,
+                        address=to.address,
+                        value=to.value,
+                        spent=spent,
+                        script=to.lock_script,
+                        script_type=to.script_type,
+                    )
+                    session.add(new_tx_item)
+                elif key_id:
+                    tx_output.key_id = key_id
+                    tx_output.spent = spent if spent is not None else tx_output.spent
+
+                rolled_back = False
+                try:
+                    await session.commit()
+
+                except IntegrityError:
+                    print("ROLLEDBACK")
+                    _logger.info(
+                        f"Rolling back this transaction, already stored for tx: {self.tx.txid}"
+                    )
+                    await session.rollback()
+                    rolled_back = True
+
+                except Exception as e:  # pragma: no cover
+                    _logger.warning(f"Tx store failure tx: {e}")
+
+                if rolled_back and key_id:
+                    res = await session.scalars(
+                        select(DbTransactionOutput).filter_by(
+                            transaction_id=txidn, output_n=to.output_n
+                        )
+                    )
+                    tx_output = res.first()
+
+                    tx_output.key_id = key_id
+                    tx_output.spent = spent if spent is not None else tx_output.spent
+                    await session.commit()
+
+        return txidn
+
     def info(self):
         """
         Print Wallet transaction information to standard output. Include send information.

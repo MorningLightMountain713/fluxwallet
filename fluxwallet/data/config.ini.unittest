@@ -1,6 +1,5 @@
 #
 # fluxwallet - Configuration file for Unit Testing
-# © 2020 March - 1200 Web Development <http://1200wd.com/>
 #
 # Paths to data, logs and configuration files, all paths are relative to fluxwallet source directory if no
 # absolute path is provided.
@@ -32,7 +31,7 @@ timeout_requests=2
 ;default_language=english
 
 # Default network when creating wallets, transaction, keys, etc.
-;default_network=bitcoin
+;default_network=flux
 
 # Default witness_type for new wallets and keys
 ;default_witness_type=legacy
