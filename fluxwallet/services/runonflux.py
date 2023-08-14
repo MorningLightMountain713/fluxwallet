@@ -160,9 +160,14 @@ class FluxClient(BaseClient):
 
     async def blockcount(self) -> int:
         # return self.compose_request("daemon/getblockcount")["data"]
-        res: dict = await anext(self.do_get("daemon/getblockcount"))
+        # res: dict = await anext(self.do_get("daemon/getblockcount"))
+        # daemon is slower to update that explorer, so using explorer
+        res: dict = await anext(
+            self.do_get("sync", base_url="https://explorer.runonflux.io/api/")
+        )
         print(res)
-        return res.get("data", 0)
+        return res.get("height")
+        # return res.get("data", 0)
 
     async def sendrawtransaction(self, rawtx: str) -> dict[str, dict]:
         # res = self.compose_request(
@@ -416,8 +421,8 @@ class FluxClient(BaseClient):
             for coro in asyncio.as_completed(tasks):
                 try:
                     result = await coro
-                except httpx.RequestError as e:
-                    print("REQUEST ERROR")
+                except (httpx.RequestError, httpx.ReadError) as e:
+                    print("REQUEST / READ ERROR")
                     to_retry.append(e.request.url)
                 else:
                     result = result.json()

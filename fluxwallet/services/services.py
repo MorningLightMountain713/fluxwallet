@@ -206,7 +206,7 @@ class Service(metaclass=SingletonNetwork):
         self.max_errors = max_errors
         self.complete = None
         self.timeout = timeout
-        self._blockcount_update = 0
+        self._blockcount_update = 0.0
         self._blockcount = 0
         self.cache = None
         self.cache_uri = cache_uri
@@ -715,6 +715,11 @@ class Service(metaclass=SingletonNetwork):
 
         return fee
 
+    async def store_blockcount(self, blockcount: int) -> None:
+        self._blockcount_update = time.monotonic()
+        self._blockcount = blockcount
+        await self.cache.store_blockcount(blockcount)
+
     async def blockcount(self) -> int:
         """
         Get the latest block number: The block number of last block in longest chain on the Blockchain.
@@ -724,30 +729,47 @@ class Service(metaclass=SingletonNetwork):
         :return int:
         """
 
-        blockcount = await self.cache.blockcount()
-        last_cache_blockcount = await self.cache.blockcount(never_expires=True)
+        # since I've made the service a singleton per network (probably wrong), the
+        # cache for blockcount is kinda pointless, as we're not instantianting a new
+        # service on every scan. Should probably just make it a wallet property
 
-        if blockcount:
-            self._blockcount = blockcount
-            return blockcount
+        # the way this worked prior was totally wrong. BLOCK_COUNT_CACHE_TIME had no
+        # effect as the cache was hardcoded to expire after 60 seconds not
+        # BLOCK_COUNT_CACHE_TIME. I noticed this as scans were using cached blockcount
+        # sometimes (blocks less than 60 sec apart)
 
-        current_timestamp = time.time()
-        if self._blockcount_update < current_timestamp - BLOCK_COUNT_CACHE_TIME:
+        now = time.monotonic()
+        # last update was longer than BLOCK_COUNT_CACHE_TIME (3) seconds ago
+        if self._blockcount_update + BLOCK_COUNT_CACHE_TIME < now:
             new_count = await self._provider_execute("blockcount")
 
             if not self._blockcount or (new_count and new_count > self._blockcount):
                 self._blockcount = new_count
-                self._blockcount_update = current_timestamp
+                self._blockcount_update = now
 
             # if cache is disabled, returns None
-            if last_cache_blockcount and last_cache_blockcount > self._blockcount:
-                return last_cache_blockcount
+            # if last_cache_blockcount and last_cache_blockcount > self._blockcount:
+            #     return last_cache_blockcount
 
             # Store result in cache
             if len(self.results) and list(self.results.keys())[0] != "caching":
                 await self.cache.store_blockcount(self._blockcount)
+                return self._blockcount
+        else:
+            print(f"In memory blockcount: {self._blockcount}")
+            return self._blockcount
 
-        return self._blockcount
+        # don't need this for the meantime, probably should add it back though
+
+        # blockcount = await self.cache.blockcount()
+        # print(f"Cache blockcount: {blockcount}")
+        # last_cache_blockcount = await self.cache.blockcount(never_expires=True)
+
+        # if blockcount:
+        #     self._blockcount = blockcount
+        #     return blockcount
+
+        # return self._blockcount
 
     async def getblock(
         self,

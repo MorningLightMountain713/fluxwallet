@@ -1297,6 +1297,7 @@ class Wallet:
         rescan_used: bool = False,
         network: str | None = None,
         keys_ignore: list[int] | None = None,
+        blockcount: int | None = None,
     ) -> set[str]:
         """
         Generate new addresses/keys and scan for new transactions using the Service providers. Updates all UTXO's and balances.
@@ -1344,7 +1345,17 @@ class Wallet:
         )
 
         # populate cache (3 seconds)
-        blockcount = await srv.blockcount()
+        # this whole service thing probably needs a rewrite. As we're using websocket on the frontend,
+        # we get pushed the blockheight which triggers a scan. There is no point then doing another
+        # request for the blockheight as that is what triggered the scan. So have allowed this as an option
+        if blockcount:
+            await srv.store_blockcount(blockcount)
+        else:
+            blockcount = await srv.blockcount()
+
+        print(
+            f"Current height: {blockcount}, last scanned height: {self.last_scanned_height}"
+        )
         if not rescan_used and not blockcount > self.last_scanned_height:
             return set()
 
