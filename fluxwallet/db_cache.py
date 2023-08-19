@@ -138,9 +138,8 @@ class DbCache:
         return self.sessionmaker()
 
     def set_sqlite_pragma(self, dbapi_connection, connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.close()
+        dbapi_connection.execute("PRAGMA journal_mode=WAL")
+        dbapi_connection.execute("PRAGMA synchronous=OFF")
 
         # print("Cache Engine connected")
 

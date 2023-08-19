@@ -25,6 +25,7 @@ class WalletKey:
     """
 
     @staticmethod
+    # this should be from_db_key_id...
     async def from_db_key(
         key_id: int, async_session: AsyncSession, *, hdkey: HDKey | None = None
     ):

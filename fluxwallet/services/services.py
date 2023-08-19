@@ -25,21 +25,17 @@ if TYPE_CHECKING:
     from fluxwallet.wallet import GenericTransaction
 
 import asyncio
-import inspect
 import json
 import logging
 import random
 import time
-from asyncio import Queue
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
-from rich.pretty import pprint
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from fluxwallet import services
 
@@ -62,7 +58,7 @@ from fluxwallet.db_cache import (
     DbCacheTransactionNode,
     DbCacheVars,
 )
-from fluxwallet.encoding import int_to_varbyteint, to_bytes, varbyteint_to_int, varstr
+from fluxwallet.encoding import int_to_varbyteint, to_bytes, varstr
 from fluxwallet.networks import Network
 from fluxwallet.transactions import (
     BitcoinTransaction,
@@ -150,6 +146,9 @@ class Service(metaclass=SingletonNetwork):
         :param strict: Strict checks of valid signatures, scripts and transactions. Normally use strict=True for wallets, transaction validations etcetera. For blockchain parsing strict=False should be used, but be sure to check warnings in the log file. Default is True.
         :type strict: bool
         """
+
+        # this is used for blockcount - can only be called once at a time
+        self.lock = asyncio.Lock()
 
         if not isinstance(network, Network):
             self.network = Network(network)
@@ -529,15 +528,11 @@ class Service(metaclass=SingletonNetwork):
         self._reset_results()
         self.results_cache_n = 0
 
-        # if not address:
-        #     yield []
-
         if not isinstance(address, TYPE_TEXT):
             raise ServiceError("Address parameter must be of type text")
 
         db_addr = await self.cache.getaddress(address)
         txs_cache: list[GenericTransaction] = []
-        # qry_after_txid = bytes.fromhex(after_txid)
 
         # Retrieve transactions from cache
         caching_enabled = True
@@ -550,18 +545,12 @@ class Service(metaclass=SingletonNetwork):
                 address, after_tx_index, limit
             ):
                 self.results_cache_n = len(txs_cache)
-                # if len(txs_cache) == limit:
-                #     return txs_cache
-
-                # limit = limit - len(txs_cache)
-                # qry_after_txid = bytes.fromhex(txs_cache[-1:][0].txid)
 
         if txs_cache:
             txs_cache = transaction_update_spents(txs_cache, address)
             print("Yielding from cache")
             yield txs_cache
 
-        # Get (extra) transactions from service providers
         tx_generator = None
 
         # if our cache isn't up to date with the latest block, go out to service provider and get more
@@ -576,63 +565,22 @@ class Service(metaclass=SingletonNetwork):
             tx_generator = await self._provider_execute(
                 "get_transactions_by_address", address, after_tx_index, limit
             )
-            # start raising errors instead of False
-
-            # if txs is False:
-            #     raise ServiceError(
-            #         "Error when retrieving transactions from service provider"
-            #     )
-
-        # Store transactions and address in cache
-        # - disable cache if comparing providers or if after_txid is used and no cache is available
-        last_block = await self.blockcount()
-        # last_txid = qry_after_txid
-        self.complete = True
-        # store_in_cache = False
-        # if (
-        #     self.min_providers <= 1
-        #     and not (after_txid and not db_addr)
-        #     and caching_enabled
-        # ):
-        #     store_in_cache = True
-        # if len(txs) == limit:
-        #     self.complete = False
-        #     last_block = txs[-1:][0].block_height
 
         if not tx_generator:
-            # print(db_addr, db_addr.last_block, await self.blockcount())
-            # empty generator
-            # yield []
             return
+
+        last_block = await self.blockcount()
 
         new_tx_count = 0
         async for txs in tx_generator:
             new_tx_count += len(txs)
-            # if len(txs) and not last_txid:
-            #     last_txid = bytes.fromhex(txs[0].txid)
 
-            # order_n = 0
-            # tasks = []
-            # if store_in_cache:
-            #     for t in txs:
-            #         if t.confirmations != 0:
-            #             # tasks.append(self.cache.store_transaction(t, order_n))
-            #             tasks.append(self.cache.store_transaction(t))
-            #             order_n += 1
-
-            #     await asyncio.gather(*tasks)
             txs = transaction_update_spents(txs, address)
 
             if caching_enabled:
-                # await self.cache.store_address(
-                #     address, last_block, last_txid=last_txid, txs_complete=True
-                # )
-
                 # speed this up
                 for t in txs:
-                    # asyncio.create_task(self.cache.store_transaction(t))
                     await self.cache.store_transaction(t)
-                # await asyncio.gather(*tasks)
 
             yield txs
 
@@ -641,7 +589,7 @@ class Service(metaclass=SingletonNetwork):
                 address,
                 last_block,
                 last_tx_index=new_tx_count + after_tx_index,
-                txs_complete=self.complete,
+                txs_complete=True,
             )
 
     async def getrawtransaction(self, txid: str) -> str:
@@ -720,6 +668,14 @@ class Service(metaclass=SingletonNetwork):
         self._blockcount = blockcount
         await self.cache.store_blockcount(blockcount)
 
+    def wihin_blockcount_cache_time(self) -> int | None:
+        now = time.monotonic()
+
+        if self._blockcount_update + BLOCK_COUNT_CACHE_TIME < now:
+            return False
+
+        return True
+
     async def blockcount(self) -> int:
         """
         Get the latest block number: The block number of last block in longest chain on the Blockchain.
@@ -728,6 +684,10 @@ class Service(metaclass=SingletonNetwork):
 
         :return int:
         """
+
+        # this method can only be called once at a time. Fetching the blockcount takes time,
+        # so we need to wait for the network to deliver the result (lock), then just use the
+        # cache for the next 3 seconds.
 
         # since I've made the service a singleton per network (probably wrong), the
         # cache for blockcount is kinda pointless, as we're not instantianting a new
@@ -738,36 +698,22 @@ class Service(metaclass=SingletonNetwork):
         # BLOCK_COUNT_CACHE_TIME. I noticed this as scans were using cached blockcount
         # sometimes (blocks less than 60 sec apart)
 
-        now = time.monotonic()
-        # last update was longer than BLOCK_COUNT_CACHE_TIME (3) seconds ago
-        if self._blockcount_update + BLOCK_COUNT_CACHE_TIME < now:
-            new_count = await self._provider_execute("blockcount")
-
-            if not self._blockcount or (new_count and new_count > self._blockcount):
-                self._blockcount = new_count
-                self._blockcount_update = now
-
-            # if cache is disabled, returns None
-            # if last_cache_blockcount and last_cache_blockcount > self._blockcount:
-            #     return last_cache_blockcount
-
-            # Store result in cache
-            if len(self.results) and list(self.results.keys())[0] != "caching":
-                await self.cache.store_blockcount(self._blockcount)
-                return self._blockcount
-        else:
-            print(f"In memory blockcount: {self._blockcount}")
+        if self.wihin_blockcount_cache_time():
             return self._blockcount
+        else:
+            async with self.lock:
+                # first guy does the work, the rest use the cache
+                if self.wihin_blockcount_cache_time():
+                    return self._blockcount
 
-        # don't need this for the meantime, probably should add it back though
+                self._blockcount = await self._provider_execute("blockcount")
+                self._blockcount_update = time.monotonic()
 
-        # blockcount = await self.cache.blockcount()
-        # print(f"Cache blockcount: {blockcount}")
-        # last_cache_blockcount = await self.cache.blockcount(never_expires=True)
-
-        # if blockcount:
-        #     self._blockcount = blockcount
-        #     return blockcount
+                # is this necessary? what is this?
+                # Store result in cache, not actually using this right now
+                if len(self.results) and list(self.results.keys())[0] != "caching":
+                    await self.cache.store_blockcount(self._blockcount)
+                    return self._blockcount
 
         # return self._blockcount
 

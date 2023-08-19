@@ -11,6 +11,10 @@ from itertools import groupby
 from operator import itemgetter
 from typing import Sequence, Union
 
+from enum import Enum
+
+from dataclasses import dataclass
+
 import numpy as np
 from rich.pretty import pprint
 from sqlalchemy import delete, func, or_, select, update
@@ -71,6 +75,13 @@ GenericKeyType = Union[
     list[HDKey],
     list[WalletKey],
 ]
+
+
+# temp until I fix this shit
+class KeyType(Enum):
+    PAYMENT = 0
+    CHANGE = 1
+    ANY = None
 
 
 def normalize_path(path: str) -> str:
@@ -596,8 +607,6 @@ class Wallet:
         :type main_key_object: HDKey
         """
 
-        self.wallet_tx_queue = Queue()
-
         if db:
             self.db = db
         elif db_uri:
@@ -646,6 +655,8 @@ class Wallet:
         self.parent_id = db_wallet.parent_id
 
         self.last_scanned_height: int = 0
+
+        self.processed_txids: set | None = None
 
     # def __exit__(self, exception_type, exception_value, traceback):
     #     try:
@@ -1284,12 +1295,175 @@ class Wallet:
             txs_found += new_tx_count
             txids_found.update(new_txids)
 
+            # this is always True now
             if new_tx_count < MAX_TRANSACTIONS:
                 break
 
         return txids_found
 
     async def scan(
+        self,
+        scan_gap_limit: int = 5,
+        account_id: int | None = None,
+        key_type: KeyType = KeyType.ANY,
+        rescan_used: bool = False,
+        network: str | None = None,
+        keys_ignore: list[int] | None = None,
+        blockcount: int | None = None,
+    ) -> set[str]:
+        """ """
+
+        # until I fix up api stuff
+        if network != "flux":
+            return set()
+
+        if not keys_ignore:
+            keys_ignore = []
+
+        background_tasks = []
+
+        network, account_id, _ = await self._get_account_defaults(network, account_id)
+        if self.scheme != "bip32" and self.scheme != "multisig" and scan_gap_limit < 2:
+            raise WalletError(
+                "The wallet scan() method is only available for BIP32 wallets"
+            )
+
+        srv = Service(
+            network=network,
+            providers=self.providers,
+            cache_uri=self.db_cache_uri,
+        )
+
+        # populate cache (3 seconds)
+        # this whole service thing probably needs a rewrite. As we're using websocket on the frontend,
+        # we get pushed the blockheight which triggers a scan. There is no point then doing another
+        # request for the blockheight as that is what triggered the scan. So have allowed this as an option
+        if blockcount:
+            await srv.store_blockcount(blockcount)
+        else:
+            blockcount = await srv.blockcount()
+
+        print(
+            f"Current height: {blockcount}, last scanned height: {self.last_scanned_height}"
+        )
+        if not rescan_used and not blockcount > self.last_scanned_height:
+            return set()
+
+        self.last_scanned_height = blockcount
+
+        # get existing txids, so we don't double up when storing existing
+        # don't have account_id here... maybe check
+        async with self.db.get_session() as session:
+            stmt = select(DbTransaction.txid).filter(
+                DbTransaction.wallet_id == self.wallet_id,
+                DbTransaction.network_name == network,
+            )
+
+            res = await session.scalars(stmt)
+            self.processed_txids = set(res.all())
+
+            stmt = stmt.filter(DbTransaction.confirmations == 0)
+            res = await session.scalars(stmt)
+            unconfirmed_db_txids = res.all()
+
+        if self.processed_txids:
+            # Update already known transactions with known block height
+            background_tasks.append(
+                asyncio.create_task(self.transactions_update_confirmations())
+            )
+
+        # Rescan used addresses
+        # if rescan_used:
+        #     for key in await self.keys_addresses(
+        #         account_id=account_id, change=change, network=network, used=True
+        #     ):
+        #         print("RESCANNING USED KEY", key)
+        #         background_tasks.append(
+        #             asyncio.create_task(
+        #                 self.scan_key(key.id, update_confirmations=False)
+        #             )
+        #         )
+
+        if unconfirmed_db_txids:
+            # this still needs fixing... and concurrency
+            background_tasks.append(
+                asyncio.create_task(
+                    self.transactions_update_by_txids(unconfirmed_db_txids)
+                )
+            )
+
+        if key_type == KeyType.ANY:
+            key_types = [KeyType.PAYMENT, KeyType.CHANGE]
+        else:
+            key_types = [key_type]
+
+        counter = 0
+        new_transactions = set()
+
+        first_loop = True
+        while True:
+            force = True
+            # first five keys are latest ununsed (these can be floating around
+            # in the db or created on the fly). Then we force more, so
+            # we don't have to updated used inbetween. (we can tell from txs)
+            if first_loop:
+                first_loop = False
+                force = False
+
+            if self.scheme == "single":
+                keys_to_scan = [
+                    await self.key(k.id)
+                    # check this
+                    for k in await self.keys_addresses()[
+                        counter : counter + scan_gap_limit
+                    ]
+                ]
+                counter += scan_gap_limit
+            else:  # bip32
+                # this is still ugly.
+                keys_to_scan = []
+                for k_type in key_types:
+                    keys_to_scan.extend(
+                        await self.get_keys(
+                            account_id,
+                            network,
+                            number_of_keys=scan_gap_limit,
+                            key_type=k_type,
+                            force_create=force,
+                        )
+                    )
+
+            scan_tasks = []
+
+            for key in keys_to_scan:
+                if key.key_id in keys_ignore:
+                    continue
+
+                # get_keys will return the same keys so we skip if we have already scanned
+                keys_ignore.append(key.key_id)
+
+                scan_tasks.append(
+                    asyncio.create_task(self.scan_key(key, update_confirmations=False))
+                )
+
+            results: list[set[str]] = await asyncio.gather(*scan_tasks)
+
+            if not any(results):
+                break
+
+            results = set.union(*results)
+
+            # new_transactions += sum(results)
+            new_transactions.update(results)
+
+        # make sure other tasks finish before we return
+        await self.update_input_output_key_ids(account_id, network)
+        await self._balance_update(account_id, network)
+        await asyncio.gather(*background_tasks)
+
+        return new_transactions
+
+    async def scan_existing(
         self,
         scan_gap_limit: int = 5,
         account_id: int | None = None,
@@ -1371,6 +1545,7 @@ class Wallet:
             for key in await self.keys_addresses(
                 account_id=account_id, change=change, network=network, used=True
             ):
+                print("RESCANNING USED KEY", key)
                 background_tasks.append(
                     asyncio.create_task(
                         self.scan_key(key.id, update_confirmations=False)
@@ -1402,6 +1577,8 @@ class Wallet:
             change_range = [0, 1]
         else:
             change_range = [change]
+
+        print("CAHNGE RANGE", change_range)
 
         counter = 0
         new_transactions = set()
@@ -1457,16 +1634,37 @@ class Wallet:
 
         return new_transactions
 
-    async def _get_key(
+    async def _get_unused_keys(
         self,
-        account_id=None,
-        network=None,
-        cosigner_id=None,
-        number_of_keys=1,
-        change=0,
-        as_list=False,
-    ) -> WalletKey:
+        account_id: int | None = None,
+        network: str | None = None,
+        cosigner_id: int | None = None,
+        number_of_keys: int = 1,
+        key_type: KeyType = KeyType.PAYMENT,
+        force_create: bool = False,
+    ) -> list[WalletKey]:
+        """Get new wallet keys for account / network. Either existing unused keys (and
+        generate on demand), or if force_create used, will generate completely new keys.
+
+        Args:
+            account_id (int | None, optional): _description_. Defaults to None.
+            network (str | None, optional): _description_. Defaults to None.
+            cosigner_id (int | None, optional): _description_. Defaults to None.
+            number_of_keys (int, optional): _description_. Defaults to 1.
+            key_type (KeyType, optional): _description_. Defaults to KeyType.PAYMENT.
+            force_create (bool, optional): _description_. Defaults to False.
+
+        Raises:
+            WalletError: _description_
+
+        Returns:
+            list[WalletKey]: _description_
+        """
+        keys = []
+
+        # what is this shit
         network, account_id, _ = await self._get_account_defaults(network, account_id)
+
         if cosigner_id is None:
             cosigner_id = self.cosigner_id
         elif cosigner_id > len(self.cosigner):
@@ -1474,6 +1672,20 @@ class Wallet:
                 "Cosigner ID (%d) can not be greater then number of cosigners for this wallet (%d)"
                 % (cosigner_id, len(self.cosigner))
             )
+
+        if force_create:
+            for _ in range(number_of_keys):
+                # assume this gets rammed in the db
+                keys.append(
+                    # make a plural
+                    await self.new_key(
+                        account_id=account_id,
+                        change=key_type.value,
+                        cosigner_id=cosigner_id,
+                        network=network,
+                    )
+                )
+            return keys
 
         async with self.db.get_session() as session:
             res = await session.scalars(
@@ -1485,7 +1697,7 @@ class Wallet:
                     cosigner_id=cosigner_id,
                     used=True,
                     key_type="bip32",
-                    change=change,
+                    change=key_type.value,
                     depth=self.key_depth,
                 )
                 .order_by(DbKey.id.desc())
@@ -1504,39 +1716,40 @@ class Wallet:
                     cosigner_id=cosigner_id,
                     used=False,
                     key_type="bip32",
-                    change=change,
+                    change=key_type.value,
                     depth=self.key_depth,
                 )
                 .filter(DbKey.id > last_used_key_id)
                 .order_by(DbKey.id.desc())
             )
-            dbkeys = res.all()
+            free_keys = res.all()
 
-        key_list = []
-        if self.scheme == "single" and len(dbkeys):
+        if self.scheme == "single" and len(free_keys):
             number_of_keys = (
-                len(dbkeys) if number_of_keys > len(dbkeys) else number_of_keys
+                len(free_keys) if number_of_keys > len(free_keys) else number_of_keys
             )
 
-        for i in range(number_of_keys):
-            if dbkeys:
-                dk = dbkeys.pop()
+        for _ in range(number_of_keys):
+            if free_keys:
+                dk = free_keys.pop()
                 nk = await self.key(dk.id)
             else:
+                # assume this gets rammed in the db
                 nk = await self.new_key(
                     account_id=account_id,
-                    change=change,
+                    change=key_type.value,
                     cosigner_id=cosigner_id,
                     network=network,
                 )
-            key_list.append(nk)
-        if as_list:
-            return key_list
-        else:
-            return key_list[0]
+            keys.append(nk)
+        return keys
 
     async def get_key(
-        self, account_id=None, network=None, cosigner_id=None, change=0
+        self,
+        account_id: int | None = None,
+        network: str | None = None,
+        cosigner_id: int | None = None,
+        key_type: KeyType = KeyType.PAYMENT,
     ) -> WalletKey:
         """
         Get a unused key / address or create a new one with :func:`new_key` if there are no unused keys.
@@ -1561,17 +1774,19 @@ class Wallet:
 
         :return WalletKey:
         """
-        return await self._get_key(
-            account_id, network, cosigner_id, change=change, as_list=False
+        keys = await self._get_unused_keys(
+            account_id, network, cosigner_id, key_type=key_type
         )
+        return keys[0]
 
     async def get_keys(
         self,
-        account_id=None,
-        network=None,
-        cosigner_id=None,
-        number_of_keys=1,
-        change=0,
+        account_id: int | None = None,
+        network: str | None = None,
+        cosigner_id: int | None = None,
+        number_of_keys: int = 1,
+        key_type: KeyType = KeyType.PAYMENT,
+        force_create: bool = False,
     ):
         """
         Get a list of unused keys / addresses or create a new ones with :func:`new_key` if there are no unused keys.
@@ -1596,11 +1811,16 @@ class Wallet:
             raise WalletError(
                 "Single wallet has only one (master)key. Use get_key() or main_key() method"
             )
-        return await self._get_key(
-            account_id, network, cosigner_id, number_of_keys, change, as_list=True
+        return await self._get_unused_keys(
+            account_id,
+            network,
+            cosigner_id,
+            number_of_keys,
+            key_type=key_type,
+            force_create=force_create,
         )
 
-    def get_key_change(self, account_id=None, network=None):
+    async def get_key_change(self, account_id=None, network=None):
         """
         Get a unused change key or create a new one if there are no unused keys.
         Wrapper for the :func:`get_key` method
@@ -1612,12 +1832,12 @@ class Wallet:
 
         :return WalletKey:
         """
-
-        return self._get_key(
-            account_id=account_id, network=network, change=1, as_list=False
+        keys = await self._get_unused_keys(
+            account_id=account_id, network=network, key_type=KeyType.CHANGE
         )
+        return keys[0]
 
-    def get_keys_change(self, account_id=None, network=None, number_of_keys=1):
+    async def get_keys_change(self, account_id=None, network=None, number_of_keys=1):
         """
         Get a unused change key or create a new one if there are no unused keys.
         Wrapper for the :func:`get_key` method
@@ -1632,12 +1852,11 @@ class Wallet:
         :return list of WalletKey:
         """
 
-        return self._get_key(
+        return await self._get_unused_keys(
             account_id=account_id,
             network=network,
-            change=1,
+            key_type=KeyType.CHANGE,
             number_of_keys=number_of_keys,
-            as_list=True,
         )
 
     async def new_account(self, name="", account_id=None, network=None):
@@ -2304,32 +2523,45 @@ class Wallet:
         :return WalletKey: Single key as object
         """
 
+        # this function seems moronic, no, it's batshit crazy, the longer
+        # you look, the worse it gets (fixed some now)
         dbkey = None
 
+        if isinstance(term, DbKey):
+            dbkey = term
+
         async with self.db.get_session() as session:
-            stmt = select(DbKey).filter_by(wallet_id=self.wallet_id)
-            if self.purpose:
-                stmt = stmt.filter_by(purpose=self.purpose)
-            if isinstance(term, numbers.Number):
-                res = await session.scalars(stmt.filter_by(id=term))
-                dbkey = res.first()
             if not dbkey:
-                res = await session.scalars(stmt.filter_by(address=term))
-                dbkey = res.first()
-            if not dbkey:
-                res = await session.scalars(stmt.filter_by(wif=term))
-                dbkey = res.first()
-            if not dbkey:
-                res = await session.scalars(stmt.filter_by(name=term))
-                dbkey = res.first()
+                if isinstance(term, numbers.Number):
+                    dbkey = await session.get(DbKey, term)
+
+                if not dbkey:
+                    stmt = select(DbKey).filter_by(wallet_id=self.wallet_id)
+                    if self.purpose:
+                        stmt = stmt.filter_by(purpose=self.purpose)
+
+                    res = await session.scalars(stmt.filter_by(address=term))
+                    dbkey = res.first()
+
+                if not dbkey:
+                    res = await session.scalars(stmt.filter_by(wif=term))
+                    dbkey = res.first()
+
+                if not dbkey:
+                    res = await session.scalars(stmt.filter_by(name=term))
+                    dbkey = res.first()
+
             if dbkey:
-                if dbkey.id in self._key_objects.keys():
+                if dbkey.id in self._key_objects:
+                    # spend some time on what this key_objects thing is. Why?
                     return self._key_objects[dbkey.id]
                 else:
-                    wallet_key = await WalletKey.from_db_key(dbkey.id, session)
+                    await dbkey.awaitable_attrs.wallet
+                    wallet_key = WalletKey(dbkey)
                     self._key_objects.update({dbkey.id: wallet_key})
                     return wallet_key
             else:
+                # da fuck is this
                 raise BKeyError("Key '%s' not found" % term)
 
     def account(self, account_id):
@@ -2535,6 +2767,7 @@ class Wallet:
 
         :return: Updated balance
         """
+        print("BALANCE UPDATE FOR KEY", key_id)
         async with self.db.get_session() as session:
             stmt = (
                 select(
@@ -2577,6 +2810,8 @@ class Wallet:
             }
             for utxo in utxos
         ]
+
+        print(key_values)
 
         grouper = itemgetter("id", "network", "account_id")
         key_balance_list = []
@@ -3050,6 +3285,7 @@ class Wallet:
             providers=self.providers,
             cache_uri=self.db_cache_uri,
         )
+        print("TX UPDATE CONFS BLOCKCOUNT")
         blockcount = await srv.blockcount()
         async with self.db.get_session() as session:
             res = await session.scalars(
@@ -3140,6 +3376,54 @@ class Wallet:
         utxos = {(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.tx.inputs}
         return utxos
 
+    async def update_input_output_key_ids(self, account_id: int, network: str) -> None:
+        # this needs to be filtered. Currently it's running multiple times for no reason
+        async with self.db.get_session() as session:
+
+            def build_statement(target: DbTransactionOutput | DbTransactionInput):
+                stmt = (
+                    select(
+                        target,
+                    )
+                    .join(DbTransaction)
+                    .filter(
+                        DbTransaction.account_id == account_id,
+                        DbTransaction.wallet_id == self.wallet_id,
+                        DbTransaction.network_name == network,
+                    )
+                    .filter(target.transaction_id == DbTransaction.id)
+                )
+                return stmt
+
+            async def update_targets(
+                targets: list[DbTransactionInput] | list[DbTransactionOutput],
+            ) -> None:
+                for target in targets:
+                    res = await session.scalars(
+                        select(DbKey).filter_by(
+                            wallet_id=self.wallet_id, address=target.address
+                        )
+                    )
+                    key = res.first()
+
+                    if key:
+                        target.key_id = key.id
+                        key.used = True
+
+            stmt = build_statement(DbTransactionInput)
+            res = await session.scalars(stmt)
+            inputs = res.all()
+
+            await update_targets(inputs)
+
+            stmt = build_statement(DbTransactionOutput)
+            res = await session.scalars(stmt)
+            outputs = res.all()
+
+            await update_targets(outputs)
+
+            await session.commit()
+
     # testing
     async def store_transactions(self, txs: list[WalletTransaction]) -> set:
         utxo_set = set()
@@ -3179,22 +3463,23 @@ class Wallet:
                     await session.flush()
                 except IntegrityError:
                     await session.rollback()
+                    print("ROLLED BACK FOR", wt.tx.txid)
                     continue
 
                 txidn = new_tx.id
 
                 for ti in wt.tx.inputs:
-                    res = await session.scalars(
-                        select(DbKey).filter_by(
-                            wallet_id=self.wallet_id, address=ti.address
-                        )
-                    )
-                    tx_key = res.first()
+                    # res = await session.scalars(
+                    #     select(DbKey).filter_by(
+                    #         wallet_id=self.wallet_id, address=ti.address
+                    #     )
+                    # )
+                    # tx_key = res.first()
 
-                    key_id = None
-                    if tx_key:
-                        key_id = tx_key.id
-                        tx_key.used = True
+                    # key_id = None
+                    # if tx_key:
+                    #     key_id = tx_key.id
+                    #     tx_key.used = True
 
                     witnesses = int_to_varbyteint(len(ti.witnesses)) + b"".join(
                         [bytes(varstr(w)) for w in ti.witnesses]
@@ -3203,7 +3488,7 @@ class Wallet:
                     new_tx_inp = DbTransactionInput(
                         transaction_id=txidn,
                         output_n=ti.output_n_int,
-                        key_id=key_id,
+                        key_id=None,
                         value=ti.value,
                         prev_txid=ti.prev_txid,
                         index_n=ti.index_n,
@@ -3218,24 +3503,24 @@ class Wallet:
                     session.add(new_tx_inp)
 
                 for to in wt.tx.outputs:
-                    res = await session.scalars(
-                        select(DbKey).filter_by(
-                            wallet_id=self.wallet_id, address=to.address
-                        )
-                    )
-                    tx_key = res.first()
-                    key_id = None
+                    # res = await session.scalars(
+                    #     select(DbKey).filter_by(
+                    #         wallet_id=self.wallet_id, address=to.address
+                    #     )
+                    # )
+                    # tx_key = res.first()
+                    # key_id = None
 
-                    if tx_key:
-                        key_id = tx_key.id
-                        tx_key.used = True
+                    # if tx_key:
+                    #     key_id = tx_key.id
+                    #     tx_key.used = True
 
                     spent = to.spent
 
                     new_tx_out = DbTransactionOutput(
                         transaction_id=txidn,
                         output_n=to.output_n,
-                        key_id=key_id,
+                        key_id=None,
                         address=to.address,
                         value=to.value,
                         spent=spent,
@@ -3246,6 +3531,8 @@ class Wallet:
 
                 for ti in wt.tx.inputs:
                     utxo_set.add((ti.prev_txid.hex(), ti.output_n_int))
+
+                # shouldn't need this anymore as we should never roll back
                 await session.flush()
             await session.commit()
         return utxo_set
@@ -3284,11 +3571,9 @@ class Wallet:
         :return int: Number of transactions that were discovered.
         """
 
-        # print("TRANSACTIONS UPDATE")
         # print("ACCOUNT ID", account_id)
         # print("USED", used)
         # print("ETNWORK", network)
-        # print("HEY ID", key_id)
         # print("DEPTH", depth)
         # print("CHANGE", change)
         # print("LIMIT", limit)
@@ -3303,6 +3588,7 @@ class Wallet:
         # Update number of confirmations and status for already known transactions
 
         if update_confirmations:
+            print("UPDATING CONFIRMATIONS")
             await self.transactions_update_confirmations()
 
         srv = Service(
@@ -3343,7 +3629,9 @@ class Wallet:
                 for tx in txs:
                     # tx's can be between keys in the same wallet (or same key)
                     # do our best to filter these out
-                    if not tx.txid in new_txids:
+                    if not tx.txid in self.processed_txids:
+                        self.processed_txids.add(tx.txid)
+
                         wallet_txs.append(
                             WalletTransaction(self, tx, addresslist=addresslist)
                         )
@@ -3369,15 +3657,6 @@ class Wallet:
                     for u in tos:
                         u.spent = True
 
-                # if last_txid:
-                #     res = await session.execute(
-                #         update(DbKey)
-                #         .where(
-                #             DbKey.address == address,
-                #             DbKey.wallet_id == self.wallet_id,
-                #         )
-                #         .values({DbKey.latest_txid: bytes.fromhex(last_txid)})
-                #     )
                 if tx_count:
                     res = await session.execute(
                         update(DbKey)
@@ -3390,9 +3669,10 @@ class Wallet:
 
                 await session.commit()
 
-        await self._balance_update(
-            account_id=account_id, network=network, key_id=key_id
-        )
+        # print("ABOUT TO BALANCE")
+        # await self._balance_update(
+        #     account_id=account_id, network=network, key_id=key_id
+        # )
 
         return new_txids
 
