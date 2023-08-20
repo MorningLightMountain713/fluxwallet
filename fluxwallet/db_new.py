@@ -367,6 +367,28 @@ class DbConfig(Base):
     value = Column(String(255))
 
 
+class DbNetwork(Base):
+    """
+    Database definitions for networks in Sqlalchemy format
+
+    Most network settings and variables can be found outside the database in the libraries configurations settings.
+    Use the fluxwallet/data/networks.json file to view and manage settings.
+
+    """
+
+    __tablename__ = "networks"
+    name = Column(
+        String(20),
+        unique=True,
+        primary_key=True,
+        doc="Network name, i.e.: bitcoin, litecoin, dash",
+    )
+    description = Column(String(50))
+
+    def __repr__(self):
+        return "<DbNetwork(name='%s', description='%s'>" % (self.name, self.description)
+
+
 class DbWallet(Base):
     """
     Database definitions for wallets in Sqlalchemy format
@@ -453,6 +475,9 @@ class DbWallet(Base):
     default_account_id: Mapped[int] = mapped_column(
         nullable=True,
         doc="ID of default account for this wallet if multiple accounts are used",
+    )
+    discovered: Mapped[bool] = mapped_column(
+        default=False, doc="If an initial scan has been run on the wallet"
     )
 
     __table_args__ = (
@@ -628,28 +653,6 @@ class DbKey(Base):
         return "<DbKey(id='%s', name='%s', wif='%s'>" % (self.id, self.name, self.wif)
 
 
-class DbNetwork(Base):
-    """
-    Database definitions for networks in Sqlalchemy format
-
-    Most network settings and variables can be found outside the database in the libraries configurations settings.
-    Use the fluxwallet/data/networks.json file to view and manage settings.
-
-    """
-
-    __tablename__ = "networks"
-    name = Column(
-        String(20),
-        unique=True,
-        primary_key=True,
-        doc="Network name, i.e.: bitcoin, litecoin, dash",
-    )
-    description = Column(String(50))
-
-    def __repr__(self):
-        return "<DbNetwork(name='%s', description='%s'>" % (self.name, self.description)
-
-
 # class TransactionType(enum.Enum):
 #     """
 #     Incoming or Outgoing transaction Enumeration
@@ -813,6 +816,7 @@ class DbTransactionInput(Base):
         Integer,
         ForeignKey("transactions.id"),
         primary_key=True,
+        index=True,
         doc="Input is part of transaction with this ID",
     )
     transaction = relationship(
@@ -893,6 +897,7 @@ class DbTransactionOutput(Base):
         Integer,
         ForeignKey("transactions.id"),
         primary_key=True,
+        index=True,
         doc="Transaction ID of parent transaction",
     )
     transaction = relationship(

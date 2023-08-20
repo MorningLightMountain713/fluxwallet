@@ -654,6 +654,8 @@ class Wallet:
         self.depth_public_master = 0
         self.parent_id = db_wallet.parent_id
 
+        self.discovered = db_wallet.discovered
+
         self.last_scanned_height: int = 0
 
         self.processed_txids: set | None = None
@@ -1259,7 +1261,10 @@ class Wallet:
         return self.new_key(name=name, account_id=account_id, network=network, change=1)
 
     async def scan_key(
-        self, key: int | WalletKey, update_confirmations: bool = True
+        self,
+        key: int | WalletKey,
+        update_confirmations: bool = True,
+        independent: bool = True,
     ) -> set[str]:
         """
         Scan for new transactions for specified wallet key and update wallet transactions
@@ -1298,6 +1303,10 @@ class Wallet:
             # this is always True now
             if new_tx_count < MAX_TRANSACTIONS:
                 break
+
+        if independent:
+            await self.update_input_output_key_ids(tx_ids=new_txids)
+            await self._balance_update(key_id=key.key_id)
 
         return txids_found
 
@@ -1365,6 +1374,12 @@ class Wallet:
             stmt = stmt.filter(DbTransaction.confirmations == 0)
             res = await session.scalars(stmt)
             unconfirmed_db_txids = res.all()
+
+            if not self.discovered:
+                self.discovered = True
+                wallet = await session.get(DbWallet, self.wallet_id)
+                wallet.discovered = True
+                await session.commit()
 
         if self.processed_txids:
             # Update already known transactions with known block height
@@ -1443,7 +1458,11 @@ class Wallet:
                 keys_ignore.append(key.key_id)
 
                 scan_tasks.append(
-                    asyncio.create_task(self.scan_key(key, update_confirmations=False))
+                    asyncio.create_task(
+                        self.scan_key(
+                            key, update_confirmations=False, independent=False
+                        )
+                    )
                 )
 
             results: list[set[str]] = await asyncio.gather(*scan_tasks)
@@ -2767,7 +2786,6 @@ class Wallet:
 
         :return: Updated balance
         """
-        print("BALANCE UPDATE FOR KEY", key_id)
         async with self.db.get_session() as session:
             stmt = (
                 select(
@@ -2810,8 +2828,6 @@ class Wallet:
             }
             for utxo in utxos
         ]
-
-        print(key_values)
 
         grouper = itemgetter("id", "network", "account_id")
         key_balance_list = []
@@ -3285,7 +3301,6 @@ class Wallet:
             providers=self.providers,
             cache_uri=self.db_cache_uri,
         )
-        print("TX UPDATE CONFS BLOCKCOUNT")
         blockcount = await srv.blockcount()
         async with self.db.get_session() as session:
             res = await session.scalars(
@@ -3376,23 +3391,33 @@ class Wallet:
         utxos = {(ti.prev_txid.hex(), ti.output_n_int) for ti in wt.tx.inputs}
         return utxos
 
-    async def update_input_output_key_ids(self, account_id: int, network: str) -> None:
+    async def update_input_output_key_ids(
+        self,
+        account_id: int | None = None,
+        network: str | None = None,
+        *,
+        tx_ids: list[int] | None = None,
+    ) -> None:
         # this needs to be filtered. Currently it's running multiple times for no reason
         async with self.db.get_session() as session:
 
             def build_statement(target: DbTransactionOutput | DbTransactionInput):
-                stmt = (
-                    select(
+                if tx_ids:
+                    stmt = select(
                         target,
+                    ).filter(target.transaction_id.in_(tx_ids))
+                else:
+                    stmt = (
+                        select(
+                            target,
+                        )
+                        .join(DbTransaction)
+                        .filter(
+                            DbTransaction.account_id == account_id,
+                            DbTransaction.wallet_id == self.wallet_id,
+                            DbTransaction.network_name == network,
+                        )
                     )
-                    .join(DbTransaction)
-                    .filter(
-                        DbTransaction.account_id == account_id,
-                        DbTransaction.wallet_id == self.wallet_id,
-                        DbTransaction.network_name == network,
-                    )
-                    .filter(target.transaction_id == DbTransaction.id)
-                )
                 return stmt
 
             async def update_targets(
@@ -3425,8 +3450,9 @@ class Wallet:
             await session.commit()
 
     # testing
-    async def store_transactions(self, txs: list[WalletTransaction]) -> set:
+    async def store_transactions(self, txs: list[WalletTransaction]) -> tuple[set, set]:
         utxo_set = set()
+        tx_ids = set()
 
         async with self.db.get_session() as session:
             for wt in txs:
@@ -3467,6 +3493,7 @@ class Wallet:
                     continue
 
                 txidn = new_tx.id
+                tx_ids.add(txidn)
 
                 for ti in wt.tx.inputs:
                     # res = await session.scalars(
@@ -3535,7 +3562,7 @@ class Wallet:
                 # shouldn't need this anymore as we should never roll back
                 await session.flush()
             await session.commit()
-        return utxo_set
+        return (utxo_set, tx_ids)
 
     async def transactions_update(
         self,
@@ -3547,7 +3574,7 @@ class Wallet:
         change: int | None = None,
         limit: int = MAX_TRANSACTIONS,
         update_confirmations: bool = True,
-    ) -> set[str]:
+    ) -> set[int]:
         """
         Update wallets transaction from service providers. Get all transactions for known keys in this wallet. The balances and unspent outputs (UTXO's) are updated as well. Only scan keys from default network and account unless another network or account is specified.
 
@@ -3588,7 +3615,6 @@ class Wallet:
         # Update number of confirmations and status for already known transactions
 
         if update_confirmations:
-            print("UPDATING CONFIRMATIONS")
             await self.transactions_update_confirmations()
 
         srv = Service(
@@ -3635,10 +3661,10 @@ class Wallet:
                         wallet_txs.append(
                             WalletTransaction(self, tx, addresslist=addresslist)
                         )
-                        new_txids.add(tx.txid)
 
-                utxos = await self.store_transactions(wallet_txs)
+                utxos, tx_ids = await self.store_transactions(wallet_txs)
                 utxo_set.update(utxos)
+                new_txids.update(tx_ids)
 
             async with self.db.get_session() as session:
                 for utxo in utxo_set:
