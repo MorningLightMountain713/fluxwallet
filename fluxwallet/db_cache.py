@@ -140,8 +140,8 @@ class DbCache:
     def set_sqlite_pragma(self, dbapi_connection, connection_record):
         dbapi_connection.execute("PRAGMA journal_mode=WAL")
         dbapi_connection.execute("PRAGMA synchronous=OFF")
-
-        # print("Cache Engine connected")
+        dbapi_connection.execute("PRAGMA temp_store=memory")
+        dbapi_connection.execute("PRAGMA mmap_size=30000000000")
 
     async def test_connection(self) -> None:
         async with self.get_session() as session:

@@ -230,12 +230,8 @@ class Db:
     def set_sqlite_pragma(self, dbapi_connection, connection_record):
         dbapi_connection.execute("PRAGMA journal_mode=WAL")
         dbapi_connection.execute("PRAGMA synchronous=OFF")
-        # cursor = dbapi_connection.cursor()
-        # cursor.execute("PRAGMA journal_mode=WAL")
-        # cursor.execute("PRAGMA synchronous=OFF")
-        # cursor.execute("PRAGMA mmap_size = 30000000000")
-        # cursor.close()
-        # print("Engine connected")
+        dbapi_connection.execute("PRAGMA temp_store=memory")
+        dbapi_connection.execute("PRAGMA mmap_size=30000000000")
 
     def get_session(self) -> AsyncSession:
         session = self.sessionmaker()
