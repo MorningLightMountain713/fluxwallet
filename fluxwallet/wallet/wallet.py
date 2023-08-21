@@ -4597,13 +4597,15 @@ class Wallet:
 
             if self.scheme == "single":
                 change_keys = [
-                    await self.get_key(account_id=account_id, network=network, change=1)
+                    await self.get_key(
+                        account_id=account_id, network=network, key_type=KeyType.CHANGE
+                    )
                 ]
             else:
                 change_keys = await self.get_keys(
                     account_id=account_id,
                     network=network,
-                    change=1,
+                    key_type=KeyType.CHANGE,
                     number_of_keys=number_of_change_outputs,
                 )
 
